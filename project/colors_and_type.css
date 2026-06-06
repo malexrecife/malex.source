@@ -1,0 +1,180 @@
+/* ============================================================
+   MALEX · colors_and_type.css
+   Design tokens — color, type, spacing, radius, shadow, motion.
+   Source of truth: 08_Malex_Identidade_Visual.md (Pilar 3).
+   "Ousado com calor" — navy-dominant, warm color-blocking.
+   ============================================================ */
+
+/* ---------- FONTS ---------- */
+@font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk-Light.ttf") format("truetype"); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk-SemiBold.ttf") format("truetype"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
+
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-300-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-300-normal.woff") format("woff"); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-300-italic.woff2") format("woff2"), url("fonts/open-sauce-one-latin-300-italic.woff") format("woff"); font-weight: 300; font-style: italic; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-400-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-400-normal.woff") format("woff"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-400-italic.woff2") format("woff2"), url("fonts/open-sauce-one-latin-400-italic.woff") format("woff"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-500-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-500-normal.woff") format("woff"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-500-italic.woff2") format("woff2"), url("fonts/open-sauce-one-latin-500-italic.woff") format("woff"); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-600-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-600-normal.woff") format("woff"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-600-italic.woff2") format("woff2"), url("fonts/open-sauce-one-latin-600-italic.woff") format("woff"); font-weight: 600; font-style: italic; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-700-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-700-normal.woff") format("woff"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-700-italic.woff2") format("woff2"), url("fonts/open-sauce-one-latin-700-italic.woff") format("woff"); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: "Open Sauce One"; src: url("fonts/open-sauce-one-latin-800-normal.woff2") format("woff2"), url("fonts/open-sauce-one-latin-800-normal.woff") format("woff"); font-weight: 800; font-style: normal; font-display: swap; }
+
+:root {
+  /* ===========================================================
+     COLOR — 5 official colors (drawn straight from the logo)
+     Hierarchy is law: navy base · orange attention · royal
+     variation · cream warmth · black weight.
+     HARD RULE: orange and royal NEVER touch. Always separated
+     by navy, cream or black.
+     =========================================================== */
+
+  /* — The five officials (500 = official hex) — */
+  --navy:   #0A2540;   /* base / dominant background */
+  --orange: #FF6E00;   /* attention / CTA / impact word */
+  --royal:  #0B5FBF;   /* variation / second voice */
+  --cream:  #FFEFE2;   /* warmth + breathing room — the brand's "white" */
+  --black:  #1A1A1A;   /* type, outlines, weight */
+
+  /* — Navy scale — */
+  --navy-900:#0A2540; --navy-800:#14324F; --navy-700:#1E3E5D; --navy-600:#284B6C;
+  --navy-500:#32587A; --navy-400:#597696; --navy-300:#8094B1; --navy-200:#A7B3CD;
+  --navy-100:#CED1E8; --navy-50:#E8EDF4;
+
+  /* — Orange scale — */
+  --orange-700:#CC5800; --orange-600:#E56300; --orange-500:#FF6E00; --orange-400:#FF8A33;
+  --orange-300:#FFA666; --orange-200:#FFC299; --orange-100:#FFDDCC; --orange-50:#FFF1E5;
+
+  /* — Royal scale — */
+  --royal-700:#084A96; --royal-600:#0954AA; --royal-500:#0B5FBF; --royal-400:#377FCD;
+  --royal-300:#639FDB; --royal-200:#8FBFE9; --royal-100:#BBDEF7; --royal-50:#E7F0FC;
+
+  /* — Cream scale — never lighter than 500 (no cold near-white) — */
+  --cream-700:#D8C6BA; --cream-600:#E6D7CB; --cream-500:#FFEFE2;
+
+  /* — Black scale — */
+  --black-900:#1A1A1A; --black-700:#383838; --black-500:#565656; --black-300:#949494; --black-100:#D1D1D1;
+
+  /* — Semantic states (kept inside brand language; info = royal) — */
+  --success:#198754; --success-bg:#DFF4E7;
+  --warning:#CC7A00; --warning-bg:#FFF4DD;
+  --error:#D92D20;   --error-bg:#FEE4E2;
+  --info:#0B5FBF;    --info-bg:#E7F0FC;
+
+  /* — Functional aliases — */
+  --bg:            var(--navy-900);   /* default page background */
+  --bg-warm:       var(--cream-500);  /* warm breathing sections */
+  --bg-variation:  var(--royal-500);  /* variation sections */
+  --bg-impact:     var(--orange-500); /* CTA / impact blocks */
+  --bg-weight:     var(--black-900);  /* high-impact / contrast */
+
+  --fg-on-navy:    var(--cream-500);  /* default reading: cream on navy */
+  --fg-on-cream:   var(--navy-900);   /* navy on cream */
+  --fg-muted-navy: var(--navy-300);   /* secondary text on navy */
+  --fg-muted-cream:var(--navy-500);   /* secondary text on cream */
+
+  /* ===========================================================
+     TYPE — two brand fonts, fixed roles. Never a third.
+     Space Grotesk = display/titles/numbers/CTA (700, tight).
+     Open Sauce One = body/UI/microcopy (400 body, 600 labels).
+     =========================================================== */
+  --font-display: "Space Grotesk", "Arial Narrow", system-ui, sans-serif;
+  --font-body:    "Open Sauce One", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono-label: "Space Grotesk", ui-monospace, monospace; /* sticker tag only */
+
+  /* Display scale — Space Grotesk 700, tight tracking */
+  --t-hero-size:72px;     --t-hero-lh:0.92;  --t-hero-track:-0.04em;
+  --t-displayxl-size:56px;--t-displayxl-lh:0.95; --t-displayxl-track:-0.04em;
+  --t-display-size:48px;  --t-display-lh:1.0; --t-display-track:-0.035em;
+  --t-h1-size:40px;       --t-h1-lh:1.05;    --t-h1-track:-0.03em;
+  --t-h2-size:32px;       --t-h2-lh:1.1;     --t-h2-track:-0.025em;
+  --t-h3-size:24px;       --t-h3-lh:1.15;    --t-h3-track:-0.02em;
+  --t-h4-size:20px;       --t-h4-lh:1.2;     --t-h4-track:-0.015em;
+
+  /* Body scale — Open Sauce One */
+  --t-body-lg-size:18px;  --t-body-lg-lh:1.5;
+  --t-body-size:16px;     --t-body-lh:1.6;
+  --t-body-sm-size:14px;  --t-body-sm-lh:1.5;
+  --t-label-size:14px;    --t-label-lh:1.3;  --t-label-weight:600;
+  --t-button-size:15px;   --t-button-lh:1.2; --t-button-weight:600;
+  --t-caption-size:12px;  --t-caption-lh:1.2; --t-caption-track:0.08em;
+  --t-overline-size:11px; --t-overline-track:0.12em;
+
+  /* ===========================================================
+     RADIUS — semantic, 3 levels. Default = Bolt.
+     Warmer/emotional → rounder. Technical/precise → harder.
+     Logo is the permanent exception: always hard-edge (0).
+     =========================================================== */
+  --radius-hard:   6px;    /* 0–8: price tables, fields, signage */
+  --radius-hard-0: 0px;
+  --radius-bolt:   16px;   /* 12–20: cards, bento, buttons, modals (default) */
+  --radius-bolt-sm:12px;
+  --radius-bolt-lg:20px;
+  --radius-generous:26px;  /* 24–28: emotional top-of-funnel */
+  --radius-pill:   999px;  /* primary CTA, benefit pills, badges */
+
+  /* ===========================================================
+     SPACING — base 8px
+     =========================================================== */
+  --s-1:4px;  --s-2:8px;  --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --s-7:40px; --s-8:48px; --s-9:64px; --s-10:80px; --s-11:96px; --s-12:128px;
+
+  /* ===========================================================
+     SHADOW — the system is flat. Sticker offset is the only
+     structural shadow. Diffuse shadow only for floating UI.
+     =========================================================== */
+  --shadow-sticker: 4px 4px 0 0 #1A1A1A;   /* solid, no blur — die-cut */
+  --shadow-sticker-navy: 4px 4px 0 0 var(--navy-900);
+  --shadow-float:   0 8px 24px rgba(10,37,64,.16); /* drawer/modal/menu only */
+
+  /* ===========================================================
+     MOTION — horizontal, fast, firm. Digital agility.
+     =========================================================== */
+  --ease-firm: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast:  180ms;
+  --dur-base:  220ms;
+  --dur-slow:  250ms;
+
+  /* Layout */
+  --container-landing:1280px;
+  --container-read:840px;
+  --container-hero:1440px;
+}
+
+/* ============================================================
+   SEMANTIC TYPE CLASSES — apply directly to elements
+   ============================================================ */
+.t-hero      { font-family:var(--font-display); font-weight:700; font-size:var(--t-hero-size); line-height:var(--t-hero-lh); letter-spacing:var(--t-hero-track); }
+.t-displayxl { font-family:var(--font-display); font-weight:700; font-size:var(--t-displayxl-size); line-height:var(--t-displayxl-lh); letter-spacing:var(--t-displayxl-track); }
+.t-display   { font-family:var(--font-display); font-weight:700; font-size:var(--t-display-size); line-height:var(--t-display-lh); letter-spacing:var(--t-display-track); }
+h1, .t-h1    { font-family:var(--font-display); font-weight:700; font-size:var(--t-h1-size); line-height:var(--t-h1-lh); letter-spacing:var(--t-h1-track); }
+h2, .t-h2    { font-family:var(--font-display); font-weight:700; font-size:var(--t-h2-size); line-height:var(--t-h2-lh); letter-spacing:var(--t-h2-track); }
+h3, .t-h3    { font-family:var(--font-display); font-weight:700; font-size:var(--t-h3-size); line-height:var(--t-h3-lh); letter-spacing:var(--t-h3-track); }
+h4, .t-h4    { font-family:var(--font-display); font-weight:700; font-size:var(--t-h4-size); line-height:var(--t-h4-lh); letter-spacing:var(--t-h4-track); }
+
+.t-body-lg { font-family:var(--font-body); font-weight:400; font-size:var(--t-body-lg-size); line-height:var(--t-body-lg-lh); }
+.t-body    { font-family:var(--font-body); font-weight:400; font-size:var(--t-body-size); line-height:var(--t-body-lh); }
+.t-body-sm { font-family:var(--font-body); font-weight:400; font-size:var(--t-body-sm-size); line-height:var(--t-body-sm-lh); }
+.t-label   { font-family:var(--font-body); font-weight:600; font-size:var(--t-label-size); line-height:var(--t-label-lh); }
+.t-button  { font-family:var(--font-body); font-weight:600; font-size:var(--t-button-size); line-height:var(--t-button-lh); }
+.t-caption { font-family:var(--font-body); font-weight:600; font-size:var(--t-caption-size); line-height:var(--t-caption-lh); letter-spacing:var(--t-caption-track); text-transform:uppercase; }
+.t-overline{ font-family:var(--font-body); font-weight:600; font-size:var(--t-overline-size); letter-spacing:var(--t-overline-track); text-transform:uppercase; }
+
+/* Numbers always tabular */
+.tabular, .t-hero, .t-displayxl, .t-display { font-variant-numeric: tabular-nums; }
+
+/* Impact word — Space Grotesk in an orange block, rotated -1.5° */
+.impact-word {
+  display:inline-block;
+  background:var(--orange-500);
+  color:var(--cream-500);
+  font-family:var(--font-display);
+  font-weight:700;
+  padding:0.04em 0.18em;
+  transform:rotate(-1.5deg);
+  border-radius:var(--radius-bolt-sm);
+}

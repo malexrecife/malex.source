@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA de página única (links âncora) — fallback opcional para rotas inexistentes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Variáveis de ambiente NÃO ficam aqui. Cadastre no painel:
+# Site settings → Environment variables → VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY

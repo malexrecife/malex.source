@@ -1,0 +1,171 @@
+/* ============================================================
+   MALEX · components.css
+   Shared component styles. Requires colors_and_type.css.
+   ============================================================ */
+
+/* ---------- BUTTONS ---------- */
+.btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--t-button-size);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: 14px 24px;
+  border: none;
+  border-radius: var(--radius-bolt-sm);   /* Bolt default */
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-firm),
+              transform var(--dur-fast) var(--ease-firm);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:active { transform: translateY(1px); }
+
+.btn-primary   { background: var(--orange-500); color: var(--cream-500); }
+.btn-primary:hover   { background: var(--orange-600); }
+.btn-primary:active  { background: var(--orange-700); }
+.btn-primary:disabled{ background: var(--navy-200); color: var(--navy-400); cursor: not-allowed; }
+
+.btn-secondary { background: var(--navy-900); color: var(--cream-500); }
+.btn-secondary:hover  { background: var(--navy-800); }
+.btn-secondary:active { background: var(--navy-700); }
+/* On navy backgrounds, secondary needs a lighter step */
+.on-navy .btn-secondary { background: var(--navy-700); }
+.on-navy .btn-secondary:hover { background: var(--navy-600); }
+
+.btn-tertiary  { background: transparent; color: var(--navy-900); padding-left: 4px; padding-right: 4px; }
+.btn-tertiary:hover  { text-decoration: underline; }
+.on-navy .btn-tertiary { color: var(--cream-500); }
+
+/* CTA — top-of-funnel, generous pill */
+.btn-cta { border-radius: var(--radius-pill); padding: 18px 36px; font-size: 17px; }
+
+.btn-lg { padding: 18px 32px; font-size: 17px; }
+.btn-sm { padding: 10px 18px; font-size: 14px; }
+.btn-block { display: flex; width: 100%; }
+
+/* ---------- PILL / BADGE ---------- */
+.pill {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.01em;
+}
+.pill-navy   { background: var(--navy-900); color: var(--cream-500); }
+.pill-cream  { background: var(--cream-500); color: var(--navy-900); }
+.pill-orange { background: var(--orange-500); color: var(--cream-500); }
+.pill-royal  { background: var(--royal-500); color: var(--cream-500); }
+.pill-outline-cream { background: transparent; color: var(--cream-500); box-shadow: inset 0 0 0 1.5px var(--cream-500); }
+
+/* ---------- CARD ---------- */
+.card {
+  border-radius: var(--radius-bolt-lg);
+  padding: var(--s-6);
+  background: var(--cream-500);
+  color: var(--navy-900);
+}
+.card-navy { background: var(--navy-900); color: var(--cream-500); }
+.card-royal{ background: var(--royal-500); color: var(--cream-500); }
+.card-orange{ background: var(--orange-500); color: var(--cream-500); }
+
+/* App / locker card — 2px navy border, Bolt-generous radius */
+.locker-card {
+  border-radius: var(--radius-generous);
+  border: 2px solid var(--navy-900);
+  background: var(--cream-500);
+  color: var(--navy-900);
+  padding: var(--s-5);
+}
+
+/* ---------- STICKER (die-cut, premium) ---------- */
+.sticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--cream-500);
+  color: var(--navy-900);
+  border: 2px solid var(--black-900);
+  border-radius: var(--radius-bolt-sm);
+  box-shadow: var(--shadow-sticker);
+  padding: 10px 16px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transform: rotate(-3deg);
+}
+.sticker-orange { background: var(--orange-500); color: var(--cream-500); }
+.sticker-navy   { background: var(--navy-900); color: var(--cream-500); }
+.sticker-royal  { background: var(--royal-500); color: var(--cream-500); }
+.sticker-pill   { border-radius: var(--radius-pill); }
+.sticker-r-pos  { transform: rotate(2.5deg); }
+.sticker-tag {            /* mono-style short label inside a sticker */
+  font-family: var(--font-mono-label);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ---------- BENTO GRID ---------- */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-4);
+}
+.bento > * { border-radius: var(--radius-bolt); padding: var(--s-5); }
+.b-1x1 { grid-column: span 1; }
+.b-2x1 { grid-column: span 2; }
+.b-2x2 { grid-column: span 2; grid-row: span 2; }
+.b-4x2 { grid-column: span 4; grid-row: span 2; }
+
+/* ---------- FIELD (hard-edge, technical) ---------- */
+.field {
+  font-family: var(--font-body);
+  font-size: 16px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 1.5px solid var(--navy-200);
+  border-radius: var(--radius-hard);
+  background: var(--cream-500);
+  color: var(--navy-900);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-firm);
+}
+.field:focus { border-color: var(--orange-500); }
+.field::placeholder { color: var(--navy-300); }
+
+/* ---------- PRICE (transparent, tabular) ---------- */
+.price {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.price-context { font-family: var(--font-body); font-weight: 600; font-size: 0.42em; color: var(--navy-400); }
+
+/* ---------- LOGO HELPERS ---------- */
+/* Inline the SVG and set `color` to one of the 5 colorways. */
+.logo-cream  { color: var(--cream-500); }
+.logo-navy   { color: var(--navy-900); }
+.logo-orange { color: var(--orange-500); }
+.logo-royal  { color: var(--royal-500); }
+.logo-black  { color: var(--black-900); }
+
+/* ---------- X DEVICE ---------- */
+.x-watermark {
+  position: absolute;
+  opacity: 0.06;
+  pointer-events: none;
+  color: var(--cream-500);
+}

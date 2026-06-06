@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Malex — Você, livre de malas.</title>
+  <meta name="description" content="Guarda-volumes digital da Malex. Larga a mala em segundos e vai viver a cidade. Monitorado 24h, preço na tela, sem fila." />
+  <link rel="stylesheet" href="colors_and_type.css" />
+  <link rel="stylesheet" href="components.css" />
+  <link rel="stylesheet" href="styles.css?v=2" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="assets/icons/malex-icons.js"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail">
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="22" fill="#0A2540"/><g transform="translate(34,46) scale(0.18)"><path d="M160.449 70.5976L131.568 3.20898H105.896V131.568H131.568L160.449 70.5976Z" fill="#FFEFE2"/><path d="M93.0605 70.5977V3.20898H54.5527V131.568H93.0605V70.5977Z" fill="#FFEFE2"/><path d="M41.7168 70.5977V3.20898H3.20898V131.568H41.7168V70.5977Z" fill="#FFEFE2"/><path d="M215.002 67.3887L141.195 131.568H189.33L215.002 98.0016L240.674 131.568H288.809L240.674 67.3887L288.809 3.20898H234.256L215.002 38.5078L189.33 3.20898H141.195L215.002 67.3887Z" fill="#FF6E00"/></g></svg>
+</template>
+
+  <div id="root"></div>
+
+  <script type="text/babel" src="Primitives.jsx"></script>
+  <script type="text/babel" src="Site.jsx"></script>
+  <script type="text/babel" src="Sections.jsx"></script>
+  <script type="text/babel" src="Reservar.jsx"></script>
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    function App() {
+      const [wiz, setWiz] = useState({ open: false, size: null });
+      const openReserve = useCallback((opts = {}) => setWiz({ open: true, size: opts.size || null }), []);
+      const closeReserve = useCallback(() => setWiz((w) => ({ ...w, open: false })), []);
+
+      return (
+        <React.Fragment>
+          <Nav onReserve={openReserve} />
+          <main>
+            <Hero onReserve={openReserve} />
+            <Ticker />
+            <ComoFunciona onReserve={openReserve} />
+            <Pricing onReserve={openReserve} />
+            <Sobre />
+            <Contato />
+          </main>
+          <Footer onReserve={openReserve} />
+          <Reservar open={wiz.open} initialSize={wiz.size} onClose={closeReserve} />
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

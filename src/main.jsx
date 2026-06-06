@@ -1,0 +1,11 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
+import AdminApp from "./admin/AdminApp.jsx";
+import "./styles/colors_and_type.css";
+import "./styles/components.css";
+import "./styles/styles.css";
+import "./styles/admin.css";
+const isAdmin = window.location.pathname.replace(/\/+$/, "").endsWith("/admin");
+const Root = isAdmin ? AdminApp : App;
+ReactDOM.createRoot(document.getElementById("root")).render(<React.StrictMode><Root /></React.StrictMode>);
