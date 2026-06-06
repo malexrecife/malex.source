@@ -1,0 +1,3838 @@
+From 282f84efe246931f096719c5e67f818db5389c70 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 6 Jun 2026 06:01:50 +0000
+Subject: [PATCH] feat(blog): add blog feature with CMS, public listing, and
+ article pages
+
+- supabase/schema_blog.sql: blog_posts table with RLS (anon reads published, auth reads/writes all) + blog-images storage bucket
+- src/lib/blog.js: Supabase CRUD for posts, image upload to storage, read time calculation, slugify helper
+- src/pages/Blog.jsx: /blog listing page with category filter, post grid, skeleton loading, react-helmet-async SEO
+- src/pages/BlogPost.jsx: /blog/:slug article page with react-markdown, JSON-LD schema (Article/FAQ/LocalBusiness), related posts, WhatsApp + copy-link sharing
+- src/styles/blog.css: full blog design system (cards, filters, markdown typography, share bar, CMS editor styles)
+- src/main.jsx: BrowserRouter + HelmetProvider wrapping site routes (/, /blog, /blog/:slug); admin path unchanged
+- src/components/Site.jsx: added Blog link to nav and mobile drawer
+- src/admin/AdminApp.jsx: Blog CMS tab with post list (paginated), visual Markdown editor with toolbar, SEO fields, cover image upload, draft/publish workflow
+
+https://claude.ai/code/session_01EHchyXDL4cW4zX3UV5cfXV
+---
+ package-lock.json        | 1711 ++++++++++++++++++++++++++++++++++++--
+ package.json             |   13 +-
+ src/admin/AdminApp.jsx   |  343 +++++++-
+ src/components/Site.jsx  |    3 +
+ src/lib/blog.js          |  103 +++
+ src/main.jsx             |   27 +-
+ src/pages/Blog.jsx       |  179 ++++
+ src/pages/BlogPost.jsx   |  344 ++++++++
+ src/styles/blog.css      |  688 +++++++++++++++
+ supabase/schema_blog.sql |   71 ++
+ 10 files changed, 3402 insertions(+), 80 deletions(-)
+ create mode 100644 src/lib/blog.js
+ create mode 100644 src/pages/Blog.jsx
+ create mode 100644 src/pages/BlogPost.jsx
+ create mode 100644 src/styles/blog.css
+ create mode 100644 supabase/schema_blog.sql
+
+diff --git a/package-lock.json b/package-lock.json
+index 08c0986..913a8f7 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -11,7 +11,11 @@
+         "@supabase/supabase-js": "^2.107.0",
+         "qrcode": "^1.5.4",
+         "react": "^18.3.1",
+-        "react-dom": "^18.3.1"
++        "react-dom": "^18.3.1",
++        "react-helmet-async": "^2.0.5",
++        "react-markdown": "^9.0.1",
++        "react-router-dom": "^6.28.0",
++        "remark-gfm": "^4.0.0"
+       },
+       "devDependencies": {
+         "@vitejs/plugin-react": "^4.3.4",
+@@ -741,6 +745,15 @@
+         "@jridgewell/sourcemap-codec": "^1.4.14"
+       }
+     },
++    "node_modules/@remix-run/router": {
++      "version": "1.23.3",
++      "resolved": "https://registry.npmjs.org/@remix-run/router/-/router-1.23.3.tgz",
++      "integrity": "sha512-4An71tdz9X8+3sI4Qqqd2LWd9vS39J7sqd9EU4Scw7TJE/qB10Flv/UuqbPVgfQV9XoK8Np6jNquZitnZq5i+Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
+     "node_modules/@rolldown/pluginutils": {
+       "version": "1.0.0-beta.27",
+       "resolved": "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.27.tgz",
+@@ -1227,13 +1240,76 @@
+         "@babel/types": "^7.28.2"
+       }
+     },
++    "node_modules/@types/debug": {
++      "version": "4.1.13",
++      "resolved": "https://registry.npmjs.org/@types/debug/-/debug-4.1.13.tgz",
++      "integrity": "sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/ms": "*"
++      }
++    },
+     "node_modules/@types/estree": {
+       "version": "1.0.9",
+       "resolved": "https://registry.npmjs.org/@types/estree/-/estree-1.0.9.tgz",
+       "integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==",
+-      "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@types/estree-jsx": {
++      "version": "1.0.5",
++      "resolved": "https://registry.npmjs.org/@types/estree-jsx/-/estree-jsx-1.0.5.tgz",
++      "integrity": "sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree": "*"
++      }
++    },
++    "node_modules/@types/hast": {
++      "version": "3.0.4",
++      "resolved": "https://registry.npmjs.org/@types/hast/-/hast-3.0.4.tgz",
++      "integrity": "sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "*"
++      }
++    },
++    "node_modules/@types/mdast": {
++      "version": "4.0.4",
++      "resolved": "https://registry.npmjs.org/@types/mdast/-/mdast-4.0.4.tgz",
++      "integrity": "sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "*"
++      }
++    },
++    "node_modules/@types/ms": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/@types/ms/-/ms-2.1.0.tgz",
++      "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/react": {
++      "version": "19.2.17",
++      "resolved": "https://registry.npmjs.org/@types/react/-/react-19.2.17.tgz",
++      "integrity": "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==",
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "csstype": "^3.2.2"
++      }
++    },
++    "node_modules/@types/unist": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/@types/unist/-/unist-3.0.3.tgz",
++      "integrity": "sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==",
++      "license": "MIT"
++    },
++    "node_modules/@ungap/structured-clone": {
++      "version": "1.3.1",
++      "resolved": "https://registry.npmjs.org/@ungap/structured-clone/-/structured-clone-1.3.1.tgz",
++      "integrity": "sha512-mUFwbeTqrVgDQxFveS+df2yfap6iuP20NAKAsBt5jDEoOTDew+zwLAOilHCeQJOVSvmgCX4ogqIrA0mnyr08yQ==",
++      "license": "ISC"
++    },
+     "node_modules/@vitejs/plugin-react": {
+       "version": "4.7.0",
+       "resolved": "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz",
+@@ -1279,6 +1355,16 @@
+         "url": "https://github.com/chalk/ansi-styles?sponsor=1"
+       }
+     },
++    "node_modules/bail": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/bail/-/bail-2.0.2.tgz",
++      "integrity": "sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/baseline-browser-mapping": {
+       "version": "2.10.33",
+       "resolved": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.10.33.tgz",
+@@ -1356,6 +1442,56 @@
+       ],
+       "license": "CC-BY-4.0"
+     },
++    "node_modules/ccount": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/ccount/-/ccount-2.0.1.tgz",
++      "integrity": "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/character-entities": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/character-entities/-/character-entities-2.0.2.tgz",
++      "integrity": "sha512-shx7oQ0Awen/BRIdkjkvz54PnEEI/EjwXDSIZp86/KKdbafHh1Df/RYGBhn4hbe2+uKC9FnT5UCEdyPz3ai9hQ==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/character-entities-html4": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/character-entities-html4/-/character-entities-html4-2.1.0.tgz",
++      "integrity": "sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/character-entities-legacy": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/character-entities-legacy/-/character-entities-legacy-3.0.0.tgz",
++      "integrity": "sha512-RpPp0asT/6ufRm//AJVwpViZbGM/MkjQFxJccQRHmISF/22NBtsHqAWmL+/pmkPWoIUJdWyeVleTl1wydHATVQ==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/character-reference-invalid": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/character-reference-invalid/-/character-reference-invalid-2.0.1.tgz",
++      "integrity": "sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/cliui": {
+       "version": "6.0.0",
+       "resolved": "https://registry.npmjs.org/cliui/-/cliui-6.0.0.tgz",
+@@ -1385,6 +1521,16 @@
+       "integrity": "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==",
+       "license": "MIT"
+     },
++    "node_modules/comma-separated-tokens": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/comma-separated-tokens/-/comma-separated-tokens-2.0.3.tgz",
++      "integrity": "sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/convert-source-map": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz",
+@@ -1392,11 +1538,17 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/csstype": {
++      "version": "3.2.3",
++      "resolved": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz",
++      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
++      "license": "MIT",
++      "peer": true
++    },
+     "node_modules/debug": {
+       "version": "4.4.3",
+       "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+       "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "ms": "^2.1.3"
+@@ -1419,6 +1571,41 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/decode-named-character-reference": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/decode-named-character-reference/-/decode-named-character-reference-1.3.0.tgz",
++      "integrity": "sha512-GtpQYB283KrPp6nRw50q3U9/VfOutZOe103qlN7BPP6Ad27xYnOIWv4lPzo8HCAL+mMZofJ9KEy30fq6MfaK6Q==",
++      "license": "MIT",
++      "dependencies": {
++        "character-entities": "^2.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/dequal": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/dequal/-/dequal-2.0.3.tgz",
++      "integrity": "sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/devlop": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/devlop/-/devlop-1.1.0.tgz",
++      "integrity": "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==",
++      "license": "MIT",
++      "dependencies": {
++        "dequal": "^2.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/dijkstrajs": {
+       "version": "1.0.3",
+       "resolved": "https://registry.npmjs.org/dijkstrajs/-/dijkstrajs-1.0.3.tgz",
+@@ -1487,6 +1674,34 @@
+         "node": ">=6"
+       }
+     },
++    "node_modules/escape-string-regexp": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/escape-string-regexp/-/escape-string-regexp-5.0.0.tgz",
++      "integrity": "sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/estree-util-is-identifier-name": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/estree-util-is-identifier-name/-/estree-util-is-identifier-name-3.0.0.tgz",
++      "integrity": "sha512-hFtqIDZTIUZ9BXLb8y4pYGyk6+wekIivNVTcmvk8NoOh+VeRn5y6cEHzbURrWbfp1fIqdVipilzj+lfaadNZmg==",
++      "license": "MIT",
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/extend": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/extend/-/extend-3.0.2.tgz",
++      "integrity": "sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==",
++      "license": "MIT"
++    },
+     "node_modules/find-up": {
+       "version": "4.1.0",
+       "resolved": "https://registry.npmjs.org/find-up/-/find-up-4.1.0.tgz",
+@@ -1534,6 +1749,56 @@
+         "node": "6.* || 8.* || >= 10.*"
+       }
+     },
++    "node_modules/hast-util-to-jsx-runtime": {
++      "version": "2.3.6",
++      "resolved": "https://registry.npmjs.org/hast-util-to-jsx-runtime/-/hast-util-to-jsx-runtime-2.3.6.tgz",
++      "integrity": "sha512-zl6s8LwNyo1P9uw+XJGvZtdFF1GdAkOg8ujOw+4Pyb76874fLps4ueHXDhXWdk6YHQ6OgUtinliG7RsYvCbbBg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree": "^1.0.0",
++        "@types/hast": "^3.0.0",
++        "@types/unist": "^3.0.0",
++        "comma-separated-tokens": "^2.0.0",
++        "devlop": "^1.0.0",
++        "estree-util-is-identifier-name": "^3.0.0",
++        "hast-util-whitespace": "^3.0.0",
++        "mdast-util-mdx-expression": "^2.0.0",
++        "mdast-util-mdx-jsx": "^3.0.0",
++        "mdast-util-mdxjs-esm": "^2.0.0",
++        "property-information": "^7.0.0",
++        "space-separated-tokens": "^2.0.0",
++        "style-to-js": "^1.0.0",
++        "unist-util-position": "^5.0.0",
++        "vfile-message": "^4.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/hast-util-whitespace": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/hast-util-whitespace/-/hast-util-whitespace-3.0.0.tgz",
++      "integrity": "sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/hast": "^3.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/html-url-attributes": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/html-url-attributes/-/html-url-attributes-3.0.1.tgz",
++      "integrity": "sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==",
++      "license": "MIT",
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
+     "node_modules/iceberg-js": {
+       "version": "0.8.1",
+       "resolved": "https://registry.npmjs.org/iceberg-js/-/iceberg-js-0.8.1.tgz",
+@@ -1543,6 +1808,55 @@
+         "node": ">=20.0.0"
+       }
+     },
++    "node_modules/inline-style-parser": {
++      "version": "0.2.7",
++      "resolved": "https://registry.npmjs.org/inline-style-parser/-/inline-style-parser-0.2.7.tgz",
++      "integrity": "sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA==",
++      "license": "MIT"
++    },
++    "node_modules/invariant": {
++      "version": "2.2.4",
++      "resolved": "https://registry.npmjs.org/invariant/-/invariant-2.2.4.tgz",
++      "integrity": "sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==",
++      "license": "MIT",
++      "dependencies": {
++        "loose-envify": "^1.0.0"
++      }
++    },
++    "node_modules/is-alphabetical": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/is-alphabetical/-/is-alphabetical-2.0.1.tgz",
++      "integrity": "sha512-FWyyY60MeTNyeSRpkM2Iry0G9hpr7/9kD40mD/cGQEuilcZYS4okz8SN2Q6rLCJ8gbCt6fN+rC+6tMGS99LaxQ==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/is-alphanumerical": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/is-alphanumerical/-/is-alphanumerical-2.0.1.tgz",
++      "integrity": "sha512-hmbYhX/9MUMF5uh7tOXyK/n0ZvWpad5caBA17GsC6vyuCqaWliRG5K1qS9inmUhEMaOBIW7/whAnSwveW/LtZw==",
++      "license": "MIT",
++      "dependencies": {
++        "is-alphabetical": "^2.0.0",
++        "is-decimal": "^2.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/is-decimal": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/is-decimal/-/is-decimal-2.0.1.tgz",
++      "integrity": "sha512-AAB9hiomQs5DXWcRB1rqsxGUstbRroFOPPVAomNk/3XHR5JyEZChOyTWe2oayKnsSsr/kcGqF+z6yuH6HHpN0A==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/is-fullwidth-code-point": {
+       "version": "3.0.0",
+       "resolved": "https://registry.npmjs.org/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz",
+@@ -1552,6 +1866,28 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/is-hexadecimal": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/is-hexadecimal/-/is-hexadecimal-2.0.1.tgz",
++      "integrity": "sha512-DgZQp241c8oO6cA1SbTEWiXeoxV42vlcJxgH+B3hi1AiqqKruZR3ZGF8In3fj4+/y/7rHvlOZLZtgJ/4ttYGZg==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/is-plain-obj": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/is-plain-obj/-/is-plain-obj-4.1.0.tgz",
++      "integrity": "sha512-+Pgi+vMuUNkJyExiMBt5IlFoMyKnr5zhJ4Uspz58WOhBF5QoIZkFyNHIbBAtHwzVAgk5RtndVNsDRN61/mmDqg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
+     "node_modules/js-tokens": {
+       "version": "4.0.0",
+       "resolved": "https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz",
+@@ -1596,6 +1932,16 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/longest-streak": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/longest-streak/-/longest-streak-3.1.0.tgz",
++      "integrity": "sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/loose-envify": {
+       "version": "1.4.0",
+       "resolved": "https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz",
+@@ -1618,104 +1964,971 @@
+         "yallist": "^3.0.2"
+       }
+     },
+-    "node_modules/ms": {
+-      "version": "2.1.3",
+-      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+-      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+-      "dev": true,
+-      "license": "MIT"
+-    },
+-    "node_modules/nanoid": {
+-      "version": "3.3.12",
+-      "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.12.tgz",
+-      "integrity": "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==",
+-      "dev": true,
+-      "funding": [
+-        {
+-          "type": "github",
+-          "url": "https://github.com/sponsors/ai"
+-        }
+-      ],
++    "node_modules/markdown-table": {
++      "version": "3.0.4",
++      "resolved": "https://registry.npmjs.org/markdown-table/-/markdown-table-3.0.4.tgz",
++      "integrity": "sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==",
+       "license": "MIT",
+-      "bin": {
+-        "nanoid": "bin/nanoid.cjs"
+-      },
+-      "engines": {
+-        "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
+       }
+     },
+-    "node_modules/node-releases": {
+-      "version": "2.0.47",
+-      "resolved": "https://registry.npmjs.org/node-releases/-/node-releases-2.0.47.tgz",
+-      "integrity": "sha512-Uzmd6LXpouKo8EUK68IjH4+E01w/hXyV3R3g/geCJo+rXLNfh1xucB+LOzYEOQPSiUK3h/xZf0cQGcSsmyL2Og==",
+-      "dev": true,
++    "node_modules/mdast-util-find-and-replace": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/mdast-util-find-and-replace/-/mdast-util-find-and-replace-3.0.2.tgz",
++      "integrity": "sha512-Tmd1Vg/m3Xz43afeNxDIhWRtFZgM2VLyaf4vSTYwudTyeuTneoL3qtWMA5jeLyz/O1vDJmmV4QuScFCA2tBPwg==",
+       "license": "MIT",
+-      "engines": {
+-        "node": ">=18"
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "escape-string-regexp": "^5.0.0",
++        "unist-util-is": "^6.0.0",
++        "unist-util-visit-parents": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/p-limit": {
+-      "version": "2.3.0",
+-      "resolved": "https://registry.npmjs.org/p-limit/-/p-limit-2.3.0.tgz",
+-      "integrity": "sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==",
++    "node_modules/mdast-util-from-markdown": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/mdast-util-from-markdown/-/mdast-util-from-markdown-2.0.3.tgz",
++      "integrity": "sha512-W4mAWTvSlKvf8L6J+VN9yLSqQ9AOAAvHuoDAmPkz4dHf553m5gVj2ejadHJhoJmcmxEnOv6Pa8XJhpxE93kb8Q==",
+       "license": "MIT",
+       "dependencies": {
+-        "p-try": "^2.0.0"
+-      },
+-      "engines": {
+-        "node": ">=6"
++        "@types/mdast": "^4.0.0",
++        "@types/unist": "^3.0.0",
++        "decode-named-character-reference": "^1.0.0",
++        "devlop": "^1.0.0",
++        "mdast-util-to-string": "^4.0.0",
++        "micromark": "^4.0.0",
++        "micromark-util-decode-numeric-character-reference": "^2.0.0",
++        "micromark-util-decode-string": "^2.0.0",
++        "micromark-util-normalize-identifier": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0",
++        "unist-util-stringify-position": "^4.0.0"
+       },
+       "funding": {
+-        "url": "https://github.com/sponsors/sindresorhus"
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/p-locate": {
+-      "version": "4.1.0",
+-      "resolved": "https://registry.npmjs.org/p-locate/-/p-locate-4.1.0.tgz",
+-      "integrity": "sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A==",
++    "node_modules/mdast-util-gfm": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm/-/mdast-util-gfm-3.1.0.tgz",
++      "integrity": "sha512-0ulfdQOM3ysHhCJ1p06l0b0VKlhU0wuQs3thxZQagjcjPrlFRqY215uZGHHJan9GEAXd9MbfPjFJz+qMkVR6zQ==",
+       "license": "MIT",
+       "dependencies": {
+-        "p-limit": "^2.2.0"
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-gfm-autolink-literal": "^2.0.0",
++        "mdast-util-gfm-footnote": "^2.0.0",
++        "mdast-util-gfm-strikethrough": "^2.0.0",
++        "mdast-util-gfm-table": "^2.0.0",
++        "mdast-util-gfm-task-list-item": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
+       },
+-      "engines": {
+-        "node": ">=8"
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/p-try": {
+-      "version": "2.2.0",
+-      "resolved": "https://registry.npmjs.org/p-try/-/p-try-2.2.0.tgz",
+-      "integrity": "sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ==",
++    "node_modules/mdast-util-gfm-autolink-literal": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm-autolink-literal/-/mdast-util-gfm-autolink-literal-2.0.1.tgz",
++      "integrity": "sha512-5HVP2MKaP6L+G6YaxPNjuL0BPrq9orG3TsrZ9YXbA3vDw/ACI4MEsnoDpn6ZNm7GnZgtAcONJyPhOP8tNJQavQ==",
+       "license": "MIT",
+-      "engines": {
+-        "node": ">=6"
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "ccount": "^2.0.0",
++        "devlop": "^1.0.0",
++        "mdast-util-find-and-replace": "^3.0.0",
++        "micromark-util-character": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/path-exists": {
+-      "version": "4.0.0",
+-      "resolved": "https://registry.npmjs.org/path-exists/-/path-exists-4.0.0.tgz",
+-      "integrity": "sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==",
++    "node_modules/mdast-util-gfm-footnote": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm-footnote/-/mdast-util-gfm-footnote-2.1.0.tgz",
++      "integrity": "sha512-sqpDWlsHn7Ac9GNZQMeUzPQSMzR6Wv0WKRNvQRg0KqHh02fpTz69Qc1QSseNX29bhz1ROIyNyxExfawVKTm1GQ==",
+       "license": "MIT",
+-      "engines": {
+-        "node": ">=8"
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.1.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0",
++        "micromark-util-normalize-identifier": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/picocolors": {
+-      "version": "1.1.1",
+-      "resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
+-      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==",
+-      "dev": true,
+-      "license": "ISC"
+-    },
+-    "node_modules/pngjs": {
+-      "version": "5.0.0",
+-      "resolved": "https://registry.npmjs.org/pngjs/-/pngjs-5.0.0.tgz",
+-      "integrity": "sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==",
++    "node_modules/mdast-util-gfm-strikethrough": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm-strikethrough/-/mdast-util-gfm-strikethrough-2.0.0.tgz",
++      "integrity": "sha512-mKKb915TF+OC5ptj5bJ7WFRPdYtuHv0yTRxK2tJvi+BDqbkiG7h7u/9SI89nRAYcmap2xHQL9D+QG/6wSrTtXg==",
+       "license": "MIT",
+-      "engines": {
+-        "node": ">=10.13.0"
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
+       }
+     },
+-    "node_modules/postcss": {
++    "node_modules/mdast-util-gfm-table": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm-table/-/mdast-util-gfm-table-2.0.0.tgz",
++      "integrity": "sha512-78UEvebzz/rJIxLvE7ZtDd/vIQ0RHv+3Mh5DR96p7cS7HsBhYIICDBCu8csTNWNO6tBWfqXPWekRuj2FNOGOZg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.0.0",
++        "markdown-table": "^3.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-gfm-task-list-item": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-gfm-task-list-item/-/mdast-util-gfm-task-list-item-2.0.0.tgz",
++      "integrity": "sha512-IrtvNvjxC1o06taBAVJznEnkiHxLFTzgonUdy8hzFVeDun0uTjxxrRGVaNFqkU1wJR3RBPEfsxmU6jDWPofrTQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-mdx-expression": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/mdast-util-mdx-expression/-/mdast-util-mdx-expression-2.0.1.tgz",
++      "integrity": "sha512-J6f+9hUp+ldTZqKRSg7Vw5V6MqjATc+3E4gf3CFNcuZNWD8XdyI6zQ8GqH7f8169MM6P7hMBRDVGnn7oHB9kXQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree-jsx": "^1.0.0",
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-mdx-jsx": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-mdx-jsx/-/mdast-util-mdx-jsx-3.2.0.tgz",
++      "integrity": "sha512-lj/z8v0r6ZtsN/cGNNtemmmfoLAFZnjMbNyLzBafjzikOM+glrjNHPlf6lQDOTccj9n5b0PPihEBbhneMyGs1Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree-jsx": "^1.0.0",
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "@types/unist": "^3.0.0",
++        "ccount": "^2.0.0",
++        "devlop": "^1.1.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0",
++        "parse-entities": "^4.0.0",
++        "stringify-entities": "^4.0.0",
++        "unist-util-stringify-position": "^4.0.0",
++        "vfile-message": "^4.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-mdxjs-esm": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/mdast-util-mdxjs-esm/-/mdast-util-mdxjs-esm-2.0.1.tgz",
++      "integrity": "sha512-EcmOpxsZ96CvlP03NghtH1EsLtr0n9Tm4lPUJUBccV9RwUOneqSycg19n5HGzCf+10LozMRSObtVr3ee1WoHtg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/estree-jsx": "^1.0.0",
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "mdast-util-to-markdown": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-phrasing": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-phrasing/-/mdast-util-phrasing-4.1.0.tgz",
++      "integrity": "sha512-TqICwyvJJpBwvGAMZjj4J2n0X8QWp21b9l0o7eXyVJ25YNWYbJDVIyD1bZXE6WtV6RmKJVYmQAKWa0zWOABz2w==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "unist-util-is": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-to-hast": {
++      "version": "13.2.1",
++      "resolved": "https://registry.npmjs.org/mdast-util-to-hast/-/mdast-util-to-hast-13.2.1.tgz",
++      "integrity": "sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "@ungap/structured-clone": "^1.0.0",
++        "devlop": "^1.0.0",
++        "micromark-util-sanitize-uri": "^2.0.0",
++        "trim-lines": "^3.0.0",
++        "unist-util-position": "^5.0.0",
++        "unist-util-visit": "^5.0.0",
++        "vfile": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-to-markdown": {
++      "version": "2.1.2",
++      "resolved": "https://registry.npmjs.org/mdast-util-to-markdown/-/mdast-util-to-markdown-2.1.2.tgz",
++      "integrity": "sha512-xj68wMTvGXVOKonmog6LwyJKrYXZPvlwabaryTjLh9LuvovB/KAH+kvi8Gjj+7rJjsFi23nkUxRQv1KqSroMqA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "@types/unist": "^3.0.0",
++        "longest-streak": "^3.0.0",
++        "mdast-util-phrasing": "^4.0.0",
++        "mdast-util-to-string": "^4.0.0",
++        "micromark-util-classify-character": "^2.0.0",
++        "micromark-util-decode-string": "^2.0.0",
++        "unist-util-visit": "^5.0.0",
++        "zwitch": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/mdast-util-to-string": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/mdast-util-to-string/-/mdast-util-to-string-4.0.0.tgz",
++      "integrity": "sha512-0H44vDimn51F0YwvxSJSm0eCDOJTRlmN0R1yBh4HLj9wiV1Dn0QoXGbvFAWj2hSItVTlCmBF1hqKlIyUBVFLPg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark": {
++      "version": "4.0.2",
++      "resolved": "https://registry.npmjs.org/micromark/-/micromark-4.0.2.tgz",
++      "integrity": "sha512-zpe98Q6kvavpCr1NPVSCMebCKfD7CA2NqZ+rykeNhONIJBpc1tFKt9hucLGwha3jNTNI8lHpctWJWoimVF4PfA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "@types/debug": "^4.0.0",
++        "debug": "^4.0.0",
++        "decode-named-character-reference": "^1.0.0",
++        "devlop": "^1.0.0",
++        "micromark-core-commonmark": "^2.0.0",
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-chunked": "^2.0.0",
++        "micromark-util-combine-extensions": "^2.0.0",
++        "micromark-util-decode-numeric-character-reference": "^2.0.0",
++        "micromark-util-encode": "^2.0.0",
++        "micromark-util-normalize-identifier": "^2.0.0",
++        "micromark-util-resolve-all": "^2.0.0",
++        "micromark-util-sanitize-uri": "^2.0.0",
++        "micromark-util-subtokenize": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-core-commonmark": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/micromark-core-commonmark/-/micromark-core-commonmark-2.0.3.tgz",
++      "integrity": "sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "decode-named-character-reference": "^1.0.0",
++        "devlop": "^1.0.0",
++        "micromark-factory-destination": "^2.0.0",
++        "micromark-factory-label": "^2.0.0",
++        "micromark-factory-space": "^2.0.0",
++        "micromark-factory-title": "^2.0.0",
++        "micromark-factory-whitespace": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-chunked": "^2.0.0",
++        "micromark-util-classify-character": "^2.0.0",
++        "micromark-util-html-tag-name": "^2.0.0",
++        "micromark-util-normalize-identifier": "^2.0.0",
++        "micromark-util-resolve-all": "^2.0.0",
++        "micromark-util-subtokenize": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-extension-gfm": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm/-/micromark-extension-gfm-3.0.0.tgz",
++      "integrity": "sha512-vsKArQsicm7t0z2GugkCKtZehqUm31oeGBV/KVSorWSy8ZlNAv7ytjFhvaryUiCUJYqs+NoE6AFhpQvBTM6Q4w==",
++      "license": "MIT",
++      "dependencies": {
++        "micromark-extension-gfm-autolink-literal": "^2.0.0",
++        "micromark-extension-gfm-footnote": "^2.0.0",
++        "micromark-extension-gfm-strikethrough": "^2.0.0",
++        "micromark-extension-gfm-table": "^2.0.0",
++        "micromark-extension-gfm-tagfilter": "^2.0.0",
++        "micromark-extension-gfm-task-list-item": "^2.0.0",
++        "micromark-util-combine-extensions": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-autolink-literal": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-autolink-literal/-/micromark-extension-gfm-autolink-literal-2.1.0.tgz",
++      "integrity": "sha512-oOg7knzhicgQ3t4QCjCWgTmfNhvQbDDnJeVu9v81r7NltNCVmhPy1fJRX27pISafdjL+SVc4d3l48Gb6pbRypw==",
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-sanitize-uri": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-footnote": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-footnote/-/micromark-extension-gfm-footnote-2.1.0.tgz",
++      "integrity": "sha512-/yPhxI1ntnDNsiHtzLKYnE3vf9JZ6cAisqVDauhp4CEHxlb4uoOTxOCJ+9s51bIB8U1N1FJ1RXOKTIlD5B/gqw==",
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-core-commonmark": "^2.0.0",
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-normalize-identifier": "^2.0.0",
++        "micromark-util-sanitize-uri": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-strikethrough": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-strikethrough/-/micromark-extension-gfm-strikethrough-2.1.0.tgz",
++      "integrity": "sha512-ADVjpOOkjz1hhkZLlBiYA9cR2Anf8F4HqZUO6e5eDcPQd0Txw5fxLzzxnEkSkfnD0wziSGiv7sYhk/ktvbf1uw==",
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-util-chunked": "^2.0.0",
++        "micromark-util-classify-character": "^2.0.0",
++        "micromark-util-resolve-all": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-table": {
++      "version": "2.1.1",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-table/-/micromark-extension-gfm-table-2.1.1.tgz",
++      "integrity": "sha512-t2OU/dXXioARrC6yWfJ4hqB7rct14e8f7m0cbI5hUmDyyIlwv5vEtooptH8INkbLzOatzKuVbQmAYcbWoyz6Dg==",
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-tagfilter": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-tagfilter/-/micromark-extension-gfm-tagfilter-2.0.0.tgz",
++      "integrity": "sha512-xHlTOmuCSotIA8TW1mDIM6X2O1SiX5P9IuDtqGonFhEK0qgRI4yeC6vMxEV2dgyr2TiD+2PQ10o+cOhdVAcwfg==",
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-extension-gfm-task-list-item": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/micromark-extension-gfm-task-list-item/-/micromark-extension-gfm-task-list-item-2.1.0.tgz",
++      "integrity": "sha512-qIBZhqxqI6fjLDYFTBIa4eivDMnP+OZqsNwmQ3xNLE4Cxwc+zfQEfbs6tzAo2Hjq+bh6q5F+Z8/cksrLFYWQQw==",
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/micromark-factory-destination": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-factory-destination/-/micromark-factory-destination-2.0.1.tgz",
++      "integrity": "sha512-Xe6rDdJlkmbFRExpTOmRj9N3MaWmbAgdpSrBQvCFqhezUn4AHqJHbaEnfbVYYiexVSs//tqOdY/DxhjdCiJnIA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-factory-label": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-factory-label/-/micromark-factory-label-2.0.1.tgz",
++      "integrity": "sha512-VFMekyQExqIW7xIChcXn4ok29YE3rnuyveW3wZQWWqF4Nv9Wk5rgJ99KzPvHjkmPXF93FXIbBp6YdW3t71/7Vg==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-factory-space": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-factory-space/-/micromark-factory-space-2.0.1.tgz",
++      "integrity": "sha512-zRkxjtBxxLd2Sc0d+fbnEunsTj46SWXgXciZmHq0kDYGnck/ZSGj9/wULTV95uoeYiK5hRXP2mJ98Uo4cq/LQg==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-factory-title": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-factory-title/-/micromark-factory-title-2.0.1.tgz",
++      "integrity": "sha512-5bZ+3CjhAd9eChYTHsjy6TGxpOFSKgKKJPJxr293jTbfry2KDoWkhBb6TcPVB4NmzaPhMs1Frm9AZH7OD4Cjzw==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-factory-whitespace": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-factory-whitespace/-/micromark-factory-whitespace-2.0.1.tgz",
++      "integrity": "sha512-Ob0nuZ3PKt/n0hORHyvoD9uZhr+Za8sFoP+OnMcnWK5lngSzALgQYKMr9RJVOWLqQYuyn6ulqGWSXdwf6F80lQ==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-factory-space": "^2.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-character": {
++      "version": "2.1.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-character/-/micromark-util-character-2.1.1.tgz",
++      "integrity": "sha512-wv8tdUTJ3thSFFFJKtpYKOYiGP2+v96Hvk4Tu8KpCAsTMs6yi+nVmGh1syvSCsaxz45J6Jbw+9DD6g97+NV67Q==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-chunked": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-chunked/-/micromark-util-chunked-2.0.1.tgz",
++      "integrity": "sha512-QUNFEOPELfmvv+4xiNg2sRYeS/P84pTW0TCgP5zc9FpXetHY0ab7SxKyAQCNCc1eK0459uoLI1y5oO5Vc1dbhA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-symbol": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-classify-character": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-classify-character/-/micromark-util-classify-character-2.0.1.tgz",
++      "integrity": "sha512-K0kHzM6afW/MbeWYWLjoHQv1sgg2Q9EccHEDzSkxiP/EaagNzCm7T/WMKZ3rjMbvIpvBiZgwR3dKMygtA4mG1Q==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-combine-extensions": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-combine-extensions/-/micromark-util-combine-extensions-2.0.1.tgz",
++      "integrity": "sha512-OnAnH8Ujmy59JcyZw8JSbK9cGpdVY44NKgSM7E9Eh7DiLS2E9RNQf0dONaGDzEG9yjEl5hcqeIsj4hfRkLH/Bg==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-chunked": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-decode-numeric-character-reference": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/micromark-util-decode-numeric-character-reference/-/micromark-util-decode-numeric-character-reference-2.0.2.tgz",
++      "integrity": "sha512-ccUbYk6CwVdkmCQMyr64dXz42EfHGkPQlBj5p7YVGzq8I7CtjXZJrubAYezf7Rp+bjPseiROqe7G6foFd+lEuw==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-symbol": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-decode-string": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-decode-string/-/micromark-util-decode-string-2.0.1.tgz",
++      "integrity": "sha512-nDV/77Fj6eH1ynwscYTOsbK7rR//Uj0bZXBwJZRfaLEJ1iGBR6kIfNmlNqaqJf649EP0F3NWNdeJi03elllNUQ==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "decode-named-character-reference": "^1.0.0",
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-decode-numeric-character-reference": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-encode": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-encode/-/micromark-util-encode-2.0.1.tgz",
++      "integrity": "sha512-c3cVx2y4KqUnwopcO9b/SCdo2O67LwJJ/UyqGfbigahfegL9myoEFoDYZgkT7f36T0bLrM9hZTAaAyH+PCAXjw==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/micromark-util-html-tag-name": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-html-tag-name/-/micromark-util-html-tag-name-2.0.1.tgz",
++      "integrity": "sha512-2cNEiYDhCWKI+Gs9T0Tiysk136SnR13hhO8yW6BGNyhOC4qYFnwF1nKfD3HFAIXA5c45RrIG1ub11GiXeYd1xA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/micromark-util-normalize-identifier": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-normalize-identifier/-/micromark-util-normalize-identifier-2.0.1.tgz",
++      "integrity": "sha512-sxPqmo70LyARJs0w2UclACPUUEqltCkJ6PhKdMIDuJ3gSf/Q+/GIe3WKl0Ijb/GyH9lOpUkRAO2wp0GVkLvS9Q==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-symbol": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-resolve-all": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-resolve-all/-/micromark-util-resolve-all-2.0.1.tgz",
++      "integrity": "sha512-VdQyxFWFT2/FGJgwQnJYbe1jjQoNTS4RjglmSjTUlpUMa95Htx9NHeYW4rGDJzbjvCsl9eLjMQwGeElsqmzcHg==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-sanitize-uri": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-sanitize-uri/-/micromark-util-sanitize-uri-2.0.1.tgz",
++      "integrity": "sha512-9N9IomZ/YuGGZZmQec1MbgxtlgougxTodVwDzzEouPKo3qFWvymFHWcnDi2vzV1ff6kas9ucW+o3yzJK9YB1AQ==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "micromark-util-character": "^2.0.0",
++        "micromark-util-encode": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-subtokenize": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/micromark-util-subtokenize/-/micromark-util-subtokenize-2.1.0.tgz",
++      "integrity": "sha512-XQLu552iSctvnEcgXw6+Sx75GflAPNED1qx7eBJ+wydBb2KCbRZe+NwvIEEMM83uml1+2WSXpBAcp9IUCgCYWA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "devlop": "^1.0.0",
++        "micromark-util-chunked": "^2.0.0",
++        "micromark-util-symbol": "^2.0.0",
++        "micromark-util-types": "^2.0.0"
++      }
++    },
++    "node_modules/micromark-util-symbol": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/micromark-util-symbol/-/micromark-util-symbol-2.0.1.tgz",
++      "integrity": "sha512-vs5t8Apaud9N28kgCrRUdEed4UJ+wWNvicHLPxCa9ENlYuAY31M0ETy5y1vA33YoNPDFTghEbnh6efaE8h4x0Q==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/micromark-util-types": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/micromark-util-types/-/micromark-util-types-2.0.2.tgz",
++      "integrity": "sha512-Yw0ECSpJoViF1qTU4DC6NwtC4aWGt1EkzaQB8KPPyCRR8z9TWeV0HbEFGTO+ZY1wB22zmxnJqhPyTpOVCpeHTA==",
++      "funding": [
++        {
++          "type": "GitHub Sponsors",
++          "url": "https://github.com/sponsors/unifiedjs"
++        },
++        {
++          "type": "OpenCollective",
++          "url": "https://opencollective.com/unified"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
++    "node_modules/nanoid": {
++      "version": "3.3.12",
++      "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.12.tgz",
++      "integrity": "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==",
++      "dev": true,
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "bin": {
++        "nanoid": "bin/nanoid.cjs"
++      },
++      "engines": {
++        "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
++      }
++    },
++    "node_modules/node-releases": {
++      "version": "2.0.47",
++      "resolved": "https://registry.npmjs.org/node-releases/-/node-releases-2.0.47.tgz",
++      "integrity": "sha512-Uzmd6LXpouKo8EUK68IjH4+E01w/hXyV3R3g/geCJo+rXLNfh1xucB+LOzYEOQPSiUK3h/xZf0cQGcSsmyL2Og==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/p-limit": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/p-limit/-/p-limit-2.3.0.tgz",
++      "integrity": "sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==",
++      "license": "MIT",
++      "dependencies": {
++        "p-try": "^2.0.0"
++      },
++      "engines": {
++        "node": ">=6"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/p-locate": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/p-locate/-/p-locate-4.1.0.tgz",
++      "integrity": "sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A==",
++      "license": "MIT",
++      "dependencies": {
++        "p-limit": "^2.2.0"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/p-try": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/p-try/-/p-try-2.2.0.tgz",
++      "integrity": "sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/parse-entities": {
++      "version": "4.0.2",
++      "resolved": "https://registry.npmjs.org/parse-entities/-/parse-entities-4.0.2.tgz",
++      "integrity": "sha512-GG2AQYWoLgL877gQIKeRPGO1xF9+eG1ujIb5soS5gPvLQ1y2o8FL90w2QWNdf9I361Mpp7726c+lj3U0qK1uGw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^2.0.0",
++        "character-entities-legacy": "^3.0.0",
++        "character-reference-invalid": "^2.0.0",
++        "decode-named-character-reference": "^1.0.0",
++        "is-alphanumerical": "^2.0.0",
++        "is-decimal": "^2.0.0",
++        "is-hexadecimal": "^2.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/parse-entities/node_modules/@types/unist": {
++      "version": "2.0.11",
++      "resolved": "https://registry.npmjs.org/@types/unist/-/unist-2.0.11.tgz",
++      "integrity": "sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==",
++      "license": "MIT"
++    },
++    "node_modules/path-exists": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/path-exists/-/path-exists-4.0.0.tgz",
++      "integrity": "sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/picocolors": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
++      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==",
++      "dev": true,
++      "license": "ISC"
++    },
++    "node_modules/pngjs": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/pngjs/-/pngjs-5.0.0.tgz",
++      "integrity": "sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=10.13.0"
++      }
++    },
++    "node_modules/postcss": {
+       "version": "8.5.15",
+       "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.15.tgz",
+       "integrity": "sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==",
+@@ -1744,6 +2957,16 @@
+         "node": "^10 || ^12 || >=14"
+       }
+     },
++    "node_modules/property-information": {
++      "version": "7.2.0",
++      "resolved": "https://registry.npmjs.org/property-information/-/property-information-7.2.0.tgz",
++      "integrity": "sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/qrcode": {
+       "version": "1.5.4",
+       "resolved": "https://registry.npmjs.org/qrcode/-/qrcode-1.5.4.tgz",
+@@ -1786,6 +3009,53 @@
+         "react": "^18.3.1"
+       }
+     },
++    "node_modules/react-fast-compare": {
++      "version": "3.2.2",
++      "resolved": "https://registry.npmjs.org/react-fast-compare/-/react-fast-compare-3.2.2.tgz",
++      "integrity": "sha512-nsO+KSNgo1SbJqJEYRE9ERzo7YtYbou/OqjSQKxV7jcKox7+usiUVZOAC+XnDOABXggQTno0Y1CpVnuWEc1boQ==",
++      "license": "MIT"
++    },
++    "node_modules/react-helmet-async": {
++      "version": "2.0.5",
++      "resolved": "https://registry.npmjs.org/react-helmet-async/-/react-helmet-async-2.0.5.tgz",
++      "integrity": "sha512-rYUYHeus+i27MvFE+Jaa4WsyBKGkL6qVgbJvSBoX8mbsWoABJXdEO0bZyi0F6i+4f0NuIb8AvqPMj3iXFHkMwg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "invariant": "^2.2.4",
++        "react-fast-compare": "^3.2.2",
++        "shallowequal": "^1.1.0"
++      },
++      "peerDependencies": {
++        "react": "^16.6.0 || ^17.0.0 || ^18.0.0"
++      }
++    },
++    "node_modules/react-markdown": {
++      "version": "9.1.0",
++      "resolved": "https://registry.npmjs.org/react-markdown/-/react-markdown-9.1.0.tgz",
++      "integrity": "sha512-xaijuJB0kzGiUdG7nc2MOMDUDBWPyGAjZtUrow9XxUeua8IqeP+VlIfAZ3bphpcLTnSZXz6z9jcVC/TCwbfgdw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "devlop": "^1.0.0",
++        "hast-util-to-jsx-runtime": "^2.0.0",
++        "html-url-attributes": "^3.0.0",
++        "mdast-util-to-hast": "^13.0.0",
++        "remark-parse": "^11.0.0",
++        "remark-rehype": "^11.0.0",
++        "unified": "^11.0.0",
++        "unist-util-visit": "^5.0.0",
++        "vfile": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      },
++      "peerDependencies": {
++        "@types/react": ">=18",
++        "react": ">=18"
++      }
++    },
+     "node_modules/react-refresh": {
+       "version": "0.17.0",
+       "resolved": "https://registry.npmjs.org/react-refresh/-/react-refresh-0.17.0.tgz",
+@@ -1796,6 +3066,104 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/react-router": {
++      "version": "6.30.4",
++      "resolved": "https://registry.npmjs.org/react-router/-/react-router-6.30.4.tgz",
++      "integrity": "sha512-SVUsDe+DybHM/WmYKIVYhZh1o5Dcuf16yM6WjG02Q9XVFMZIJyHYhwrr6bFBXZkVP6z69kNkMyBCujt8FaFLJA==",
++      "license": "MIT",
++      "dependencies": {
++        "@remix-run/router": "1.23.3"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      },
++      "peerDependencies": {
++        "react": ">=16.8"
++      }
++    },
++    "node_modules/react-router-dom": {
++      "version": "6.30.4",
++      "resolved": "https://registry.npmjs.org/react-router-dom/-/react-router-dom-6.30.4.tgz",
++      "integrity": "sha512-q4HvNl+mmDdkS0g+MqiBZNteQJCuimWoOyHMy4T/RQLAn9Z29+E91QXRaxOujeMl2HTzRSS0KFPd7lxX3PjV0Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@remix-run/router": "1.23.3",
++        "react-router": "6.30.4"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      },
++      "peerDependencies": {
++        "react": ">=16.8",
++        "react-dom": ">=16.8"
++      }
++    },
++    "node_modules/remark-gfm": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/remark-gfm/-/remark-gfm-4.0.1.tgz",
++      "integrity": "sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "mdast-util-gfm": "^3.0.0",
++        "micromark-extension-gfm": "^3.0.0",
++        "remark-parse": "^11.0.0",
++        "remark-stringify": "^11.0.0",
++        "unified": "^11.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/remark-parse": {
++      "version": "11.0.0",
++      "resolved": "https://registry.npmjs.org/remark-parse/-/remark-parse-11.0.0.tgz",
++      "integrity": "sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "mdast-util-from-markdown": "^2.0.0",
++        "micromark-util-types": "^2.0.0",
++        "unified": "^11.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/remark-rehype": {
++      "version": "11.1.2",
++      "resolved": "https://registry.npmjs.org/remark-rehype/-/remark-rehype-11.1.2.tgz",
++      "integrity": "sha512-Dh7l57ianaEoIpzbp0PC9UKAdCSVklD8E5Rpw7ETfbTl3FqcOOgq5q2LVDhgGCkaBv7p24JXikPdvhhmHvKMsw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/hast": "^3.0.0",
++        "@types/mdast": "^4.0.0",
++        "mdast-util-to-hast": "^13.0.0",
++        "unified": "^11.0.0",
++        "vfile": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/remark-stringify": {
++      "version": "11.0.0",
++      "resolved": "https://registry.npmjs.org/remark-stringify/-/remark-stringify-11.0.0.tgz",
++      "integrity": "sha512-1OSmLd3awB/t8qdoEOMazZkNsfVTeY4fTsgzcQFdXNq8ToTN4ZGwrMnlda4K6smTFKD+GRV6O48i6Z4iKgPPpw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/mdast": "^4.0.0",
++        "mdast-util-to-markdown": "^2.0.0",
++        "unified": "^11.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
+     "node_modules/require-directory": {
+       "version": "2.1.1",
+       "resolved": "https://registry.npmjs.org/require-directory/-/require-directory-2.1.1.tgz",
+@@ -1881,6 +3249,12 @@
+       "integrity": "sha512-KiKBS8AnWGEyLzofFfmvKwpdPzqiy16LvQfK3yv/fVH7Bj13/wl3JSR1J+rfgRE9q7xUJK4qvgS8raSOeLUehw==",
+       "license": "ISC"
+     },
++    "node_modules/shallowequal": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/shallowequal/-/shallowequal-1.1.0.tgz",
++      "integrity": "sha512-y0m1JoUZSlPAjXVtPPW70aZWfIL/dSP7AFkRnniLCrK/8MDKog3TySTBmckD+RObVxH0v4Tox67+F14PdED2oQ==",
++      "license": "MIT"
++    },
+     "node_modules/source-map-js": {
+       "version": "1.2.1",
+       "resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz",
+@@ -1891,6 +3265,16 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/space-separated-tokens": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/space-separated-tokens/-/space-separated-tokens-2.0.2.tgz",
++      "integrity": "sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/string-width": {
+       "version": "4.2.3",
+       "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz",
+@@ -1905,6 +3289,20 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/stringify-entities": {
++      "version": "4.0.4",
++      "resolved": "https://registry.npmjs.org/stringify-entities/-/stringify-entities-4.0.4.tgz",
++      "integrity": "sha512-IwfBptatlO+QCJUo19AqvrPNqlVMpW9YEL2LIVY+Rpv2qsjCGxaDLNRgeGsQWJhfItebuJhsGSLjaBbNSQ+ieg==",
++      "license": "MIT",
++      "dependencies": {
++        "character-entities-html4": "^2.0.0",
++        "character-entities-legacy": "^3.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/strip-ansi": {
+       "version": "6.0.1",
+       "resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz",
+@@ -1917,12 +3315,137 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/style-to-js": {
++      "version": "1.1.21",
++      "resolved": "https://registry.npmjs.org/style-to-js/-/style-to-js-1.1.21.tgz",
++      "integrity": "sha512-RjQetxJrrUJLQPHbLku6U/ocGtzyjbJMP9lCNK7Ag0CNh690nSH8woqWH9u16nMjYBAok+i7JO1NP2pOy8IsPQ==",
++      "license": "MIT",
++      "dependencies": {
++        "style-to-object": "1.0.14"
++      }
++    },
++    "node_modules/style-to-object": {
++      "version": "1.0.14",
++      "resolved": "https://registry.npmjs.org/style-to-object/-/style-to-object-1.0.14.tgz",
++      "integrity": "sha512-LIN7rULI0jBscWQYaSswptyderlarFkjQ+t79nzty8tcIAceVomEVlLzH5VP4Cmsv6MtKhs7qaAiwlcp+Mgaxw==",
++      "license": "MIT",
++      "dependencies": {
++        "inline-style-parser": "0.2.7"
++      }
++    },
++    "node_modules/trim-lines": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/trim-lines/-/trim-lines-3.0.1.tgz",
++      "integrity": "sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
++    "node_modules/trough": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/trough/-/trough-2.2.0.tgz",
++      "integrity": "sha512-tmMpK00BjZiUyVyvrBK7knerNgmgvcV/KLVyuma/SC+TQN167GrMRciANTz09+k3zW8L8t60jWO1GpfkZdjTaw==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
++    },
+     "node_modules/tslib": {
+       "version": "2.8.1",
+       "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
+       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+       "license": "0BSD"
+     },
++    "node_modules/unified": {
++      "version": "11.0.5",
++      "resolved": "https://registry.npmjs.org/unified/-/unified-11.0.5.tgz",
++      "integrity": "sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0",
++        "bail": "^2.0.0",
++        "devlop": "^1.0.0",
++        "extend": "^3.0.0",
++        "is-plain-obj": "^4.0.0",
++        "trough": "^2.0.0",
++        "vfile": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/unist-util-is": {
++      "version": "6.0.1",
++      "resolved": "https://registry.npmjs.org/unist-util-is/-/unist-util-is-6.0.1.tgz",
++      "integrity": "sha512-LsiILbtBETkDz8I9p1dQ0uyRUWuaQzd/cuEeS1hoRSyW5E5XGmTzlwY1OrNzzakGowI9Dr/I8HVaw4hTtnxy8g==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/unist-util-position": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/unist-util-position/-/unist-util-position-5.0.0.tgz",
++      "integrity": "sha512-fucsC7HjXvkB5R3kTCO7kUjRdrS0BJt3M/FPxmHMBOm8JQi2BsHAHFsy27E0EolP8rp0NzXsJ+jNPyDWvOJZPA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/unist-util-stringify-position": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/unist-util-stringify-position/-/unist-util-stringify-position-4.0.0.tgz",
++      "integrity": "sha512-0ASV06AAoKCDkS2+xw5RXJywruurpbC4JZSm7nr7MOt1ojAzvyyaO+UxZf18j8FCF6kmzCZKcAgN/yu2gm2XgQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/unist-util-visit": {
++      "version": "5.1.0",
++      "resolved": "https://registry.npmjs.org/unist-util-visit/-/unist-util-visit-5.1.0.tgz",
++      "integrity": "sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0",
++        "unist-util-is": "^6.0.0",
++        "unist-util-visit-parents": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/unist-util-visit-parents": {
++      "version": "6.0.2",
++      "resolved": "https://registry.npmjs.org/unist-util-visit-parents/-/unist-util-visit-parents-6.0.2.tgz",
++      "integrity": "sha512-goh1s1TBrqSqukSc8wrjwWhL0hiJxgA8m4kFxGlQ+8FYQ3C/m11FcTs4YYem7V664AhHVvgoQLk890Ssdsr2IQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0",
++        "unist-util-is": "^6.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
+     "node_modules/update-browserslist-db": {
+       "version": "1.2.3",
+       "resolved": "https://registry.npmjs.org/update-browserslist-db/-/update-browserslist-db-1.2.3.tgz",
+@@ -1954,6 +3477,34 @@
+         "browserslist": ">= 4.21.0"
+       }
+     },
++    "node_modules/vfile": {
++      "version": "6.0.3",
++      "resolved": "https://registry.npmjs.org/vfile/-/vfile-6.0.3.tgz",
++      "integrity": "sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0",
++        "vfile-message": "^4.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
++    "node_modules/vfile-message": {
++      "version": "4.0.3",
++      "resolved": "https://registry.npmjs.org/vfile-message/-/vfile-message-4.0.3.tgz",
++      "integrity": "sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/unist": "^3.0.0",
++        "unist-util-stringify-position": "^4.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/unified"
++      }
++    },
+     "node_modules/vite": {
+       "version": "5.4.21",
+       "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz",
+@@ -2081,6 +3632,16 @@
+       "engines": {
+         "node": ">=6"
+       }
++    },
++    "node_modules/zwitch": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/zwitch/-/zwitch-2.0.4.tgz",
++      "integrity": "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==",
++      "license": "MIT",
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wooorm"
++      }
+     }
+   }
+ }
+diff --git a/package.json b/package.json
+index e1a46eb..04e7fc2 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,16 @@
+ {
+   "name": "malex-site", "private": true, "version": "1.0.0", "type": "module",
+-  "description": "Malex — site + reserva (Pix) + painel admin + financeiro.",
++  "description": "Malex — site + reserva (Pix) + painel admin + financeiro + blog.",
+   "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+-  "dependencies": { "@supabase/supabase-js": "^2.107.0", "qrcode": "^1.5.4", "react": "^18.3.1", "react-dom": "^18.3.1" },
++  "dependencies": {
++    "@supabase/supabase-js": "^2.107.0",
++    "qrcode": "^1.5.4",
++    "react": "^18.3.1",
++    "react-dom": "^18.3.1",
++    "react-router-dom": "^6.28.0",
++    "react-markdown": "^9.0.1",
++    "remark-gfm": "^4.0.0",
++    "react-helmet-async": "^2.0.5"
++  },
+   "devDependencies": { "@vitejs/plugin-react": "^4.3.4", "vite": "^5.4.11" }
+ }
+diff --git a/src/admin/AdminApp.jsx b/src/admin/AdminApp.jsx
+index 4ff7ba0..4c56943 100644
+--- a/src/admin/AdminApp.jsx
++++ b/src/admin/AdminApp.jsx
+@@ -1,4 +1,4 @@
+-// Malex — Painel administrativo (login único + gestão de unidades/lockers/financeiro).
++// Malex — Painel administrativo (login único + gestão de unidades/lockers/financeiro + blog).
+ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+ import { MalexLogo, Icon, Btn } from "../components/Primitives.jsx";
+ import {
+@@ -9,6 +9,10 @@ import {
+   listReservations, checkInReservation, cancelReservation, setPaymentStatus,
+   listAuditLogs,
+ } from "../lib/admin.js";
++import {
++  BLOG_CATEGORIES, slugify, calcReadTime,
++  adminListPosts, adminGetPost, adminSavePost, adminDeletePost, uploadCoverImage,
++} from "../lib/blog.js";
+ import { supabase } from "../lib/supabase.js";
+ 
+ /* ============================ CONSTANTS ============================ */
+@@ -319,6 +323,9 @@ function Dashboard({ session }) {
+           )}
+           <button className={view === "marketing" ? "on" : ""} onClick={() => setView("marketing")}>Marketing</button>
+           <button className={view === "table" ? "on" : ""} onClick={() => setView("table")}>Reservas</button>
++          {role !== "unit_manager" && (
++            <button className={view === "blog" ? "on" : ""} onClick={() => setView("blog")}>Blog</button>
++          )}
+         </nav>
+         <div className="adm-top-r">
+           <span className="t-body-sm" style={{ color: "var(--navy-200)" }}>{session.user?.email}</span>
+@@ -396,6 +403,12 @@ function Dashboard({ session }) {
+         </div>
+       )}
+ 
++      {view === "blog" && role !== "unit_manager" && (
++        <div className="adm-finance">
++          <BlogCmsView showToast={showToast} confirm={confirm} />
++        </div>
++      )}
++
+       {modal?.type === "unit" && <UnitModal onClose={close} onDone={() => afterChange("Unidade criada com sucesso!")} />}
+       {modal?.type === "lockers" && <LockersModal unit={modal.unit} onClose={close} onDone={() => afterChange("Lockers adicionados!")} />}
+       {modal?.type === "occupy" && <OccupyModal unit={modal.unit} locker={modal.locker} lockers={modal.lockers} reservations={modal.reservations} onClose={close} onDone={() => afterChange("Locker ocupado com sucesso!")} />}
+@@ -1382,3 +1395,331 @@ function UnitMenu({ onAddLockers, onDelUnit }) {
+     </div>
+   );
+ }
++
++/* ============================ BLOG CMS ============================ */
++
++/* Markdown toolbar helper — wraps/inserts syntax at cursor */
++function insertMd(ta, pre, suf = "", placeholder = "texto") {
++  const s = ta.selectionStart, e = ta.selectionEnd;
++  const sel = ta.value.substring(s, e) || placeholder;
++  const newVal = ta.value.substring(0, s) + pre + sel + suf + ta.value.substring(e);
++  const newCursor = s + pre.length + sel.length + suf.length;
++  return { newVal, newCursor };
++}
++
++function linePrefix(ta, prefix) {
++  const s = ta.selectionStart;
++  const lineStart = ta.value.lastIndexOf("\n", s - 1) + 1;
++  const before = ta.value.substring(0, lineStart);
++  const after = ta.value.substring(lineStart);
++  const newVal = before + prefix + after;
++  const newCursor = s + prefix.length;
++  return { newVal, newCursor };
++}
++
++function MdToolbar({ taRef, onChange }) {
++  const apply = (fn) => {
++    const ta = taRef.current;
++    if (!ta) return;
++    const { newVal, newCursor } = fn(ta);
++    onChange(newVal);
++    requestAnimationFrame(() => {
++      ta.focus();
++      ta.setSelectionRange(newCursor, newCursor);
++    });
++  };
++
++  const btn = (label, fn, title) => (
++    <button type="button" className="blog-md-toolbar-btn" title={title || label} onClick={() => apply(fn)}>{label}</button>
++  );
++
++  return (
++    <div className="blog-md-toolbar">
++      {btn("B", (ta) => insertMd(ta, "**", "**", "negrito"), "Negrito")}
++      {btn("I", (ta) => insertMd(ta, "*", "*", "itálico"), "Itálico")}
++      <div className="blog-md-toolbar-sep" />
++      {btn("H2", (ta) => linePrefix(ta, "## "), "Título H2")}
++      {btn("H3", (ta) => linePrefix(ta, "### "), "Título H3")}
++      {btn("H4", (ta) => linePrefix(ta, "#### "), "Título H4")}
++      <div className="blog-md-toolbar-sep" />
++      {btn("— link", (ta) => insertMd(ta, "[", "](https://)", "texto do link"), "Link")}
++      {btn("— img", (ta) => insertMd(ta, "![", "](https://url-da-imagem.jpg)", "alt da imagem"), "Imagem")}
++      <div className="blog-md-toolbar-sep" />
++      {btn("• lista", (ta) => linePrefix(ta, "- "), "Lista com marcadores")}
++      {btn("1. lista", (ta) => linePrefix(ta, "1. "), "Lista numerada")}
++      {btn('" cit.', (ta) => linePrefix(ta, "> "), "Citação / blockquote")}
++      <div className="blog-md-toolbar-sep" />
++      {btn("`code`", (ta) => insertMd(ta, "`", "`", "código"), "Código inline")}
++      {btn("---", (ta) => {
++        const ta2 = taRef.current;
++        const s = ta2.selectionStart;
++        const newVal = ta2.value.substring(0, s) + "\n---\n" + ta2.value.substring(s);
++        return { newVal, newCursor: s + 5 };
++      }, "Linha horizontal")}
++    </div>
++  );
++}
++
++/* ---- Post editor ---- */
++const EMPTY_POST = {
++  title: "", slug: "", summary: "", body: "",
++  category: BLOG_CATEGORIES[0],
++  tags: "", main_keyword: "", secondary_keywords: "",
++  seo_title: "", meta_description: "",
++  schema_type: "Article",
++  cover_image_url: "", cover_image_alt: "",
++  status: "draft",
++};
++
++function PostEditor({ postId, onBack, showToast }) {
++  const [form, setForm] = useState(EMPTY_POST);
++  const [loading, setLoading] = useState(!!postId);
++  const [busy, setBusy] = useState(false);
++  const [err, setErr] = useState(null);
++  const [uploading, setUploading] = useState(false);
++  const [slugManual, setSlugManual] = useState(false);
++  const taRef = useRef(null);
++
++  useEffect(() => {
++    if (!postId) return;
++    adminGetPost(postId).then(({ data }) => {
++      if (data) {
++        setForm({
++          ...data,
++          tags: (data.tags || []).join(", "),
++          secondary_keywords: (data.secondary_keywords || []).join(", "),
++        });
++        setSlugManual(true);
++      }
++      setLoading(false);
++    });
++  }, [postId]);
++
++  const set = (k, v) => setForm((f) => {
++    const next = { ...f, [k]: v };
++    if (k === "title" && !slugManual) next.slug = slugify(v);
++    return next;
++  });
++
++  const handleUpload = async (file) => {
++    if (!file) return;
++    setUploading(true);
++    const { url, error } = await uploadCoverImage(file, form.slug || "post");
++    setUploading(false);
++    if (error) { showToast("Erro ao fazer upload da imagem.", "error"); return; }
++    set("cover_image_url", url);
++  };
++
++  const save = async (publishNow = false) => {
++    if (!form.title.trim()) { setErr("Título obrigatório."); return; }
++    if (!form.slug.trim()) { setErr("Slug obrigatório."); return; }
++    setBusy(true); setErr(null);
++    const payload = {
++      ...(postId ? { id: postId } : {}),
++      ...form,
++      tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
++      secondary_keywords: form.secondary_keywords ? form.secondary_keywords.split(",").map((t) => t.trim()).filter(Boolean) : [],
++      status: publishNow ? "published" : form.status,
++    };
++    const { error } = await adminSavePost(payload);
++    setBusy(false);
++    if (error) { setErr(error.message); return; }
++    showToast(publishNow ? "Post publicado!" : "Rascunho salvo.", "success");
++    onBack();
++  };
++
++  if (loading) return <div className="adm-skeleton-list"><div className="skeleton adm-skeleton-row" /></div>;
++
++  const readTime = calcReadTime(form.body);
++
++  return (
++    <div className="blog-editor-wrap">
++      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
++        <button className="adm-link" onClick={onBack}><Icon name="arrow-left" size={16} /> Voltar</button>
++        <span className="t-h4" style={{ color: "var(--cream-500)", margin: 0 }}>{postId ? "Editar post" : "Novo post"}</span>
++        <span className="t-body-sm" style={{ color: "var(--navy-400)", marginLeft: "auto" }}>{readTime} min de leitura · {form.body.trim().split(/\s+/).filter(Boolean).length} palavras</span>
++      </div>
++
++      <div className="blog-editor-grid">
++        {/* Coluna esquerda */}
++        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
++          <Fld label="Título *">
++            <input className="field" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Título do post" />
++          </Fld>
++          <Fld label="Slug (URL) *">
++            <input className="field" value={form.slug} onChange={(e) => { setSlugManual(true); set("slug", slugify(e.target.value)); }} placeholder="url-do-post" />
++          </Fld>
++          <Fld label="Resumo">
++            <textarea className="field" rows={3} value={form.summary} onChange={(e) => set("summary", e.target.value)} placeholder="1-2 frases sobre o artigo" style={{ resize: "vertical" }} />
++          </Fld>
++          <Fld label="Categoria *">
++            <select className="field" value={form.category} onChange={(e) => set("category", e.target.value)}>
++              {BLOG_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
++            </select>
++          </Fld>
++          <Fld label="Tags (separadas por vírgula)">
++            <input className="field" value={form.tags} onChange={(e) => set("tags", e.target.value)} placeholder="aeroporto, recife, mochila" />
++          </Fld>
++          <Fld label="Status">
++            <select className="field" value={form.status} onChange={(e) => set("status", e.target.value)}>
++              <option value="draft">Rascunho</option>
++              <option value="published">Publicado</option>
++            </select>
++          </Fld>
++        </div>
++
++        {/* Coluna direita — SEO + imagem */}
++        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
++          <Fld label="SEO Title">
++            <input className="field" value={form.seo_title} onChange={(e) => set("seo_title", e.target.value)} placeholder="Título para Google (50-60 chars)" />
++          </Fld>
++          <Fld label="Meta Description">
++            <textarea className="field" rows={3} value={form.meta_description} onChange={(e) => set("meta_description", e.target.value)} placeholder="Descrição para Google (140-160 chars)" style={{ resize: "vertical" }} />
++          </Fld>
++          <Fld label="Palavra-chave principal">
++            <input className="field" value={form.main_keyword} onChange={(e) => set("main_keyword", e.target.value)} placeholder="guarda-volumes recife" />
++          </Fld>
++          <Fld label="Palavras-chave secundárias (vírgula)">
++            <input className="field" value={form.secondary_keywords} onChange={(e) => set("secondary_keywords", e.target.value)} placeholder="locker aeroporto, mochila viagem" />
++          </Fld>
++          <Fld label="Schema JSON-LD">
++            <select className="field" value={form.schema_type} onChange={(e) => set("schema_type", e.target.value)}>
++              <option value="Article">Article</option>
++              <option value="FAQ">FAQ</option>
++              <option value="LocalBusiness">LocalBusiness</option>
++            </select>
++          </Fld>
++          <Fld label="Imagem de capa">
++            <input type="file" accept="image/*" className="field" onChange={(e) => handleUpload(e.target.files[0])} disabled={uploading} />
++            {uploading && <span className="t-body-sm" style={{ color: "var(--navy-300)" }}>Enviando…</span>}
++            {form.cover_image_url && <img src={form.cover_image_url} alt="Capa" className="blog-editor-cover-preview" />}
++          </Fld>
++          <Fld label="Alt text da capa">
++            <input className="field" value={form.cover_image_alt} onChange={(e) => set("cover_image_alt", e.target.value)} placeholder="Descrição da imagem para acessibilidade e SEO" />
++          </Fld>
++        </div>
++      </div>
++
++      {/* Markdown editor */}
++      <div>
++        <label className="wf-field-lbl" style={{ marginBottom: 4, display: "block" }}>Conteúdo (Markdown) *</label>
++        <MdToolbar taRef={taRef} onChange={(v) => set("body", v)} />
++        <textarea
++          ref={taRef}
++          className="blog-md-textarea"
++          value={form.body}
++          onChange={(e) => set("body", e.target.value)}
++          placeholder="Escreva o conteúdo do artigo em Markdown..."
++          spellCheck={true}
++        />
++      </div>
++
++      {err && <div className="adm-err">{err}</div>}
++
++      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
++        <Btn variant="secondary" onClick={() => save(false)} disabled={busy}>{busy ? "Salvando…" : "Salvar rascunho"}</Btn>
++        <Btn variant="primary" cta onClick={() => save(true)} disabled={busy}>{busy ? "Publicando…" : "Publicar"}</Btn>
++      </div>
++    </div>
++  );
++}
++
++/* ---- Post list ---- */
++function BlogCmsView({ showToast, confirm }) {
++  const [posts, setPosts] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [editId, setEditId] = useState(null);
++  const [creating, setCreating] = useState(false);
++  const { page, total, setPage, slice, count } = usePagination(posts, 20);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    const { data } = await adminListPosts();
++    setPosts(data);
++    setLoading(false);
++  }, []);
++
++  useEffect(() => { load(); }, [load]);
++
++  if (creating || editId !== null) {
++    return (
++      <PostEditor
++        postId={editId}
++        showToast={showToast}
++        onBack={() => { setCreating(false); setEditId(null); load(); }}
++      />
++    );
++  }
++
++  return (
++    <div>
++      <div className="blog-cms-toolbar">
++        <span className="t-h4" style={{ color: "var(--cream-500)", margin: 0 }}>Posts do Blog</span>
++        <span className="t-body-sm" style={{ color: "var(--navy-400)", marginLeft: 4 }}>({count})</span>
++        <Btn variant="primary" cta icon="plus" onClick={() => setCreating(true)} style={{ marginLeft: "auto" }}>Novo post</Btn>
++      </div>
++
++      {loading ? <SkeletonList rows={5} /> : posts.length === 0 ? (
++        <div className="adm-empty">
++          <Icon name="package" size={36} color="var(--navy-400)" />
++          <p className="t-body" style={{ color: "var(--navy-300)" }}>Nenhum post ainda. Clique em "Novo post" pra começar.</p>
++        </div>
++      ) : (
++        <>
++          <table className="blog-cms-table">
++            <thead>
++              <tr>
++                <th>Título</th>
++                <th>Categoria</th>
++                <th>Status</th>
++                <th>Publicado em</th>
++                <th>Leitura</th>
++                <th></th>
++              </tr>
++            </thead>
++            <tbody>
++              {slice.map((p) => (
++                <tr key={p.id}>
++                  <td style={{ maxWidth: 280 }}>
++                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
++                    <span className="t-body-sm" style={{ color: "var(--navy-400)" }}>/blog/{p.slug}</span>
++                  </td>
++                  <td><span style={{ color: "var(--navy-300)", fontSize: 13 }}>{p.category}</span></td>
++                  <td>
++                    <span className={`blog-status-pill blog-status-${p.status}`}>
++                      {p.status === "published" ? "Publicado" : "Rascunho"}
++                    </span>
++                  </td>
++                  <td style={{ color: "var(--navy-300)", fontSize: 13 }}>{p.published_at ? fmtDateTime(p.published_at) : "—"}</td>
++                  <td style={{ color: "var(--navy-300)", fontSize: 13 }}>{p.read_time_min ?? "—"} min</td>
++                  <td>
++                    <div style={{ display: "flex", gap: 6 }}>
++                      <button className="adm-link" onClick={() => setEditId(p.id)}>
++                        <Icon name="key" size={14} /> Editar
++                      </button>
++                      {p.status === "published" && (
++                        <a className="adm-link" href={`/blog/${p.slug}`} target="_blank" rel="noopener noreferrer">
++                          <Icon name="arrow-right" size={14} /> Ver
++                        </a>
++                      )}
++                      <button className="adm-link" style={{ color: "var(--error)" }} onClick={async () => {
++                        const ok = await confirm(`Excluir "${p.title}"?`, "Excluir post");
++                        if (!ok) return;
++                        await adminDeletePost(p.id);
++                        showToast("Post excluído.", "info");
++                        load();
++                      }}>
++                        <Icon name="close" size={14} /> Excluir
++                      </button>
++                    </div>
++                  </td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++          <Paginator page={page} total={total} setPage={setPage} count={count} perPage={20} />
++        </>
++      )}
++    </div>
++  );
++}
+diff --git a/src/components/Site.jsx b/src/components/Site.jsx
+index eb7e5a5..19ef852 100644
+--- a/src/components/Site.jsx
++++ b/src/components/Site.jsx
+@@ -9,6 +9,7 @@ const NAV_LINKS = [
+   { id: "sobre", label: "Sobre" },
+   { id: "contato", label: "Contato" },
+ ];
++const BLOG_HREF = "/blog";
+ 
+ export function scrollToId(id) {
+   const el = document.getElementById(id);
+@@ -33,6 +34,7 @@ export function Nav({ onReserve }) {
+           {NAV_LINKS.map((l) => (
+             <a key={l.id} href={`#${l.id}`} onClick={(e) => { e.preventDefault(); scrollToId(l.id); }}>{l.label}</a>
+           ))}
++          <a href={BLOG_HREF}>Blog</a>
+         </nav>
+         <div className="nav-cta">
+           <Btn variant="primary" cta size="sm" onClick={() => onReserve()}>Reservar locker</Btn>
+@@ -55,6 +57,7 @@ export function Nav({ onReserve }) {
+           {NAV_LINKS.map((l) => (
+             <a key={l.id} href={`#${l.id}`} onClick={(e) => { e.preventDefault(); setDrawer(false); setTimeout(() => scrollToId(l.id), 120); }}>{l.label}</a>
+           ))}
++          <a href={BLOG_HREF} onClick={() => setDrawer(false)}>Blog</a>
+         </nav>
+         <Btn variant="primary" cta className="btn-block" onClick={() => { setDrawer(false); onReserve(); }}>Reservar locker</Btn>
+       </aside>
+diff --git a/src/lib/blog.js b/src/lib/blog.js
+new file mode 100644
+index 0000000..1c293ec
+--- /dev/null
++++ b/src/lib/blog.js
+@@ -0,0 +1,103 @@
++// Malex blog — Supabase CRUD para posts, imagens e categorias.
++import { supabase } from "./supabase.js";
++
++export const BLOG_CATEGORIES = [
++  "Guarda-Volumes & Lockers",
++  "Guias de Aeroportos",
++  "Roteiros & Viagem",
++  "Eventos & Feiras",
++  "Viagem de Negócios",
++  "Sobre a Malex",
++];
++
++export function calcReadTime(body) {
++  const words = (body || "").trim().split(/\s+/).filter(Boolean).length;
++  return Math.max(1, Math.ceil(words / 200));
++}
++
++export function slugify(text) {
++  return text
++    .toLowerCase()
++    .normalize("NFD").replace(/[̀-ͯ]/g, "")
++    .replace(/[^a-z0-9\s-]/g, "")
++    .trim().replace(/\s+/g, "-")
++    .replace(/-+/g, "-");
++}
++
++/* ---------- PÚBLICO (site) ---------- */
++
++export async function listPublishedPosts(category = null) {
++  let q = supabase
++    .from("blog_posts")
++    .select("id,slug,title,seo_title,summary,category,tags,cover_image_url,cover_image_alt,published_at,read_time_min,author")
++    .eq("status", "published")
++    .order("published_at", { ascending: false });
++  if (category) q = q.eq("category", category);
++  const { data, error } = await q;
++  return { data: data || [], error };
++}
++
++export async function getPublishedPost(slug) {
++  return supabase
++    .from("blog_posts")
++    .select("*")
++    .eq("slug", slug)
++    .eq("status", "published")
++    .single();
++}
++
++export async function getRelatedPosts(category, excludeSlug, limit = 3) {
++  const { data } = await supabase
++    .from("blog_posts")
++    .select("id,slug,title,summary,category,cover_image_url,cover_image_alt,published_at,read_time_min")
++    .eq("status", "published")
++    .eq("category", category)
++    .neq("slug", excludeSlug)
++    .order("published_at", { ascending: false })
++    .limit(limit);
++  return data || [];
++}
++
++/* ---------- ADMIN (CMS) ---------- */
++
++export async function adminListPosts() {
++  const { data, error } = await supabase
++    .from("blog_posts")
++    .select("id,slug,title,category,status,published_at,updated_at,cover_image_url,read_time_min")
++    .order("updated_at", { ascending: false });
++  return { data: data || [], error };
++}
++
++export async function adminGetPost(id) {
++  return supabase.from("blog_posts").select("*").eq("id", id).single();
++}
++
++export async function adminSavePost(post) {
++  const payload = { ...post };
++  delete payload.id;
++  payload.read_time_min = calcReadTime(post.body);
++  payload.updated_at = new Date().toISOString();
++  payload.author = "Malex";
++  if (payload.status === "published" && !post.published_at) {
++    payload.published_at = new Date().toISOString();
++  }
++  if (post.id) {
++    return supabase.from("blog_posts").update(payload).eq("id", post.id).select().single();
++  }
++  return supabase.from("blog_posts").insert(payload).select().single();
++}
++
++export async function adminDeletePost(id) {
++  return supabase.from("blog_posts").delete().eq("id", id);
++}
++
++export async function uploadCoverImage(file, slug) {
++  const ext = file.name.split(".").pop().toLowerCase();
++  const path = `covers/${slug || "post"}-${Date.now()}.${ext}`;
++  const { data, error } = await supabase.storage
++    .from("blog-images")
++    .upload(path, file, { upsert: true, contentType: file.type });
++  if (error) return { url: null, error };
++  const { data: pub } = supabase.storage.from("blog-images").getPublicUrl(data.path);
++  return { url: pub.publicUrl, error: null };
++}
+diff --git a/src/main.jsx b/src/main.jsx
+index db4b0c4..d77dbb3 100644
+--- a/src/main.jsx
++++ b/src/main.jsx
+@@ -1,11 +1,34 @@
+ import React from "react";
+ import ReactDOM from "react-dom/client";
++import { BrowserRouter, Routes, Route } from "react-router-dom";
++import { HelmetProvider } from "react-helmet-async";
+ import App from "./App.jsx";
+ import AdminApp from "./admin/AdminApp.jsx";
++import Blog from "./pages/Blog.jsx";
++import BlogPost from "./pages/BlogPost.jsx";
+ import "./styles/colors_and_type.css";
+ import "./styles/components.css";
+ import "./styles/styles.css";
+ import "./styles/admin.css";
++import "./styles/blog.css";
++
+ const isAdmin = window.location.pathname.replace(/\/+$/, "").endsWith("/admin");
+-const Root = isAdmin ? AdminApp : App;
+-ReactDOM.createRoot(document.getElementById("root")).render(<React.StrictMode><Root /></React.StrictMode>);
++
++const root = ReactDOM.createRoot(document.getElementById("root"));
++if (isAdmin) {
++  root.render(<React.StrictMode><AdminApp /></React.StrictMode>);
++} else {
++  root.render(
++    <React.StrictMode>
++      <HelmetProvider>
++        <BrowserRouter>
++          <Routes>
++            <Route path="/" element={<App />} />
++            <Route path="/blog" element={<Blog />} />
++            <Route path="/blog/:slug" element={<BlogPost />} />
++          </Routes>
++        </BrowserRouter>
++      </HelmetProvider>
++    </React.StrictMode>
++  );
++}
+diff --git a/src/pages/Blog.jsx b/src/pages/Blog.jsx
+new file mode 100644
+index 0000000..134936d
+--- /dev/null
++++ b/src/pages/Blog.jsx
+@@ -0,0 +1,179 @@
++// Malex Blog — listagem de artigos com filtro por categoria.
++import React, { useState, useEffect } from "react";
++import { Link } from "react-router-dom";
++import { Helmet } from "react-helmet-async";
++import { MalexLogo, Icon } from "../components/Primitives.jsx";
++import { MALEX_CONTACT } from "../components/Primitives.jsx";
++import { listPublishedPosts, BLOG_CATEGORIES } from "../lib/blog.js";
++
++const SITE_URL = "https://malex.com.br";
++
++function fmtDate(v) {
++  if (!v) return "";
++  const d = new Date(v);
++  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
++}
++
++/* ---- Nav ---- */
++function BlogNav() {
++  const [drawer, setDrawer] = useState(false);
++  return (
++    <header className="nav">
++      <div className="nav-inner">
++        <Link to="/" className="nav-logo" aria-label="Malex — início">
++          <MalexLogo height={24} />
++        </Link>
++        <nav className="nav-links" aria-label="Principal">
++          <a href="/#como">Como funciona</a>
++          <a href="/#precos">Preços</a>
++          <a href="/#unidades">Unidades</a>
++          <Link to="/blog" className="blog-nav-active">Blog</Link>
++          <a href="/#contato">Contato</a>
++        </nav>
++        <div className="nav-cta">
++          <a className="btn btn-primary btn-cta btn-sm" href="/#inicio" onClick={(e) => { e.preventDefault(); window.location.href = "/?reservar=1"; }}>Reservar locker</a>
++        </div>
++        <button className="nav-burger" aria-label="Abrir menu" aria-expanded={drawer} onClick={() => setDrawer(true)}>
++          <Icon name="menu" size={26} color="var(--cream-500)" />
++        </button>
++      </div>
++      <div className={`drawer-scrim${drawer ? " open" : ""}`} onClick={() => setDrawer(false)} />
++      <aside className={`drawer${drawer ? " open" : ""}`} aria-hidden={!drawer} role="dialog" aria-label="Menu">
++        <div className="drawer-top">
++          <MalexLogo height={22} />
++          <button className="drawer-close" aria-label="Fechar menu" onClick={() => setDrawer(false)}>
++            <Icon name="close" size={24} color="var(--cream-500)" />
++          </button>
++        </div>
++        <nav className="drawer-links">
++          <a href="/#como" onClick={() => setDrawer(false)}>Como funciona</a>
++          <a href="/#precos" onClick={() => setDrawer(false)}>Preços</a>
++          <a href="/#unidades" onClick={() => setDrawer(false)}>Unidades</a>
++          <Link to="/blog" onClick={() => setDrawer(false)}>Blog</Link>
++          <a href="/#contato" onClick={() => setDrawer(false)}>Contato</a>
++        </nav>
++        <a className="btn btn-primary btn-cta btn-block" href="/" onClick={() => setDrawer(false)}>Reservar locker</a>
++      </aside>
++    </header>
++  );
++}
++
++/* ---- PostCard ---- */
++function PostCard({ post }) {
++  return (
++    <Link to={`/blog/${post.slug}`} className="blog-card">
++      <div className="blog-card-img">
++        {post.cover_image_url
++          ? <img src={post.cover_image_url} alt={post.cover_image_alt || post.title} loading="lazy" />
++          : <div className="blog-card-img-placeholder"><Icon name="package" size={36} color="var(--navy-400)" /></div>
++        }
++      </div>
++      <div className="blog-card-body">
++        <span className="blog-cat-pill">{post.category}</span>
++        <h2 className="blog-card-title">{post.title}</h2>
++        {post.summary && <p className="blog-card-summary">{post.summary}</p>}
++        <div className="blog-card-meta">
++          <span className="blog-card-meta-item">
++            <Icon name="clock" size={13} color="var(--navy-400)" />
++            {post.read_time_min ?? 1} min
++          </span>
++          {post.published_at && (
++            <span className="blog-card-meta-item">
++              <Icon name="calendar-check" size={13} color="var(--navy-400)" />
++              {fmtDate(post.published_at)}
++            </span>
++          )}
++        </div>
++      </div>
++    </Link>
++  );
++}
++
++/* ---- Main ---- */
++export default function Blog() {
++  const [posts, setPosts] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [cat, setCat] = useState(null);
++
++  useEffect(() => {
++    setLoading(true);
++    listPublishedPosts(cat).then(({ data }) => { setPosts(data); setLoading(false); });
++  }, [cat]);
++
++  const title = "Blog Malex — Dicas de viagem, aeroportos e guarda-volumes";
++  const description = "Artigos sobre guarda-volumes, lockers, guias de aeroportos, roteiros de viagem e muito mais. Viaje mais leve com a Malex.";
++
++  return (
++    <>
++      <Helmet>
++        <title>{title}</title>
++        <meta name="description" content={description} />
++        <link rel="canonical" href={`${SITE_URL}/blog`} />
++        <meta property="og:type" content="website" />
++        <meta property="og:title" content={title} />
++        <meta property="og:description" content={description} />
++        <meta property="og:url" content={`${SITE_URL}/blog`} />
++      </Helmet>
++
++      <BlogNav />
++
++      <main>
++        {/* Hero da listagem */}
++        <section className="blog-hero on-navy">
++          <div className="container blog-hero-inner">
++            <span className="t-overline" style={{ color: "var(--orange-400)" }}>Blog Malex</span>
++            <h1 className="t-display blog-hero-title">Viaje mais leve.<br />Leia mais.</h1>
++            <p className="t-body-lg blog-hero-sub">Dicas de aeroportos, roteiros, guarda-volumes e tudo que você precisa saber pra viajar sem estresse.</p>
++          </div>
++        </section>
++
++        {/* Filtro de categorias */}
++        <section className="blog-filter-bar on-navy">
++          <div className="container">
++            <div className="blog-filters">
++              <button className={`blog-filter-btn${cat === null ? " on" : ""}`} onClick={() => setCat(null)}>Todos</button>
++              {BLOG_CATEGORIES.map((c) => (
++                <button key={c} className={`blog-filter-btn${cat === c ? " on" : ""}`} onClick={() => setCat(c)}>{c}</button>
++              ))}
++            </div>
++          </div>
++        </section>
++
++        {/* Grid de posts */}
++        <section className="blog-grid-section on-navy">
++          <div className="container">
++            {loading ? (
++              <div className="blog-grid">
++                {Array.from({ length: 6 }).map((_, i) => (
++                  <div key={i} className="blog-card-skeleton skeleton" style={{ animationDelay: `${i * 0.08}s` }} />
++                ))}
++              </div>
++            ) : posts.length === 0 ? (
++              <div className="blog-empty">
++                <Icon name="package" size={40} color="var(--navy-400)" />
++                <p className="t-body" style={{ color: "var(--navy-300)" }}>Nenhum artigo publicado ainda{cat ? ` em "${cat}"` : ""}.</p>
++                {cat && <button className="blog-filter-btn on" onClick={() => setCat(null)}>Ver todos</button>}
++              </div>
++            ) : (
++              <div className="blog-grid">
++                {posts.map((p) => <PostCard key={p.id} post={p} />)}
++              </div>
++            )}
++          </div>
++        </section>
++      </main>
++
++      {/* Footer simples */}
++      <footer className="blog-footer on-navy">
++        <div className="container blog-footer-inner">
++          <MalexLogo height={20} />
++          <span className="t-body-sm" style={{ color: "var(--navy-300)" }}>© {new Date().getFullYear()} Malex. Todos os direitos reservados.</span>
++          <div className="blog-footer-links">
++            <Link to="/">Site</Link>
++            <a href={MALEX_CONTACT.whatsapp} target="_blank" rel="noopener noreferrer">WhatsApp</a>
++          </div>
++        </div>
++      </footer>
++    </>
++  );
++}
+diff --git a/src/pages/BlogPost.jsx b/src/pages/BlogPost.jsx
+new file mode 100644
+index 0000000..e7bc498
+--- /dev/null
++++ b/src/pages/BlogPost.jsx
+@@ -0,0 +1,344 @@
++// Malex BlogPost — artigo individual com Markdown, JSON-LD, artigos relacionados e compartilhamento.
++import React, { useState, useEffect } from "react";
++import { Link, useParams, useNavigate } from "react-router-dom";
++import { Helmet } from "react-helmet-async";
++import ReactMarkdown from "react-markdown";
++import remarkGfm from "remark-gfm";
++import { MalexLogo, Icon } from "../components/Primitives.jsx";
++import { MALEX_CONTACT } from "../components/Primitives.jsx";
++import { getPublishedPost, getRelatedPosts } from "../lib/blog.js";
++
++const SITE_URL = "https://malex.com.br";
++
++function fmtDate(v) {
++  if (!v) return "";
++  const d = new Date(v);
++  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
++}
++
++/* ---- Nav ---- */
++function BlogNav() {
++  const [drawer, setDrawer] = useState(false);
++  return (
++    <header className="nav">
++      <div className="nav-inner">
++        <Link to="/" className="nav-logo" aria-label="Malex — início">
++          <MalexLogo height={24} />
++        </Link>
++        <nav className="nav-links" aria-label="Principal">
++          <a href="/#como">Como funciona</a>
++          <a href="/#precos">Preços</a>
++          <a href="/#unidades">Unidades</a>
++          <Link to="/blog" className="blog-nav-active">Blog</Link>
++          <a href="/#contato">Contato</a>
++        </nav>
++        <div className="nav-cta">
++          <a className="btn btn-primary btn-cta btn-sm" href="/">Reservar locker</a>
++        </div>
++        <button className="nav-burger" aria-label="Abrir menu" aria-expanded={drawer} onClick={() => setDrawer(true)}>
++          <Icon name="menu" size={26} color="var(--cream-500)" />
++        </button>
++      </div>
++      <div className={`drawer-scrim${drawer ? " open" : ""}`} onClick={() => setDrawer(false)} />
++      <aside className={`drawer${drawer ? " open" : ""}`} aria-hidden={!drawer} role="dialog" aria-label="Menu">
++        <div className="drawer-top">
++          <MalexLogo height={22} />
++          <button className="drawer-close" aria-label="Fechar menu" onClick={() => setDrawer(false)}>
++            <Icon name="close" size={24} color="var(--cream-500)" />
++          </button>
++        </div>
++        <nav className="drawer-links">
++          <a href="/#como" onClick={() => setDrawer(false)}>Como funciona</a>
++          <a href="/#precos" onClick={() => setDrawer(false)}>Preços</a>
++          <a href="/#unidades" onClick={() => setDrawer(false)}>Unidades</a>
++          <Link to="/blog" onClick={() => setDrawer(false)}>Blog</Link>
++          <a href="/#contato" onClick={() => setDrawer(false)}>Contato</a>
++        </nav>
++        <a className="btn btn-primary btn-cta btn-block" href="/">Reservar locker</a>
++      </aside>
++    </header>
++  );
++}
++
++/* ---- Related card ---- */
++function RelatedCard({ post }) {
++  return (
++    <Link to={`/blog/${post.slug}`} className="blog-related-card">
++      {post.cover_image_url
++        ? <img className="blog-related-img" src={post.cover_image_url} alt={post.cover_image_alt || post.title} loading="lazy" />
++        : <div className="blog-related-img blog-related-img-placeholder"><Icon name="package" size={24} color="var(--navy-400)" /></div>
++      }
++      <div className="blog-related-body">
++        <span className="blog-cat-pill">{post.category}</span>
++        <p className="blog-related-title">{post.title}</p>
++        <span className="blog-card-meta-item"><Icon name="clock" size={12} color="var(--navy-400)" />{post.read_time_min ?? 1} min</span>
++      </div>
++    </Link>
++  );
++}
++
++/* ---- Share bar ---- */
++function ShareBar({ url, title }) {
++  const [copied, setCopied] = useState(false);
++  const wppText = encodeURIComponent(`${title}\n${url}`);
++  const copy = async () => {
++    await navigator.clipboard.writeText(url).catch(() => {});
++    setCopied(true);
++    setTimeout(() => setCopied(false), 2000);
++  };
++  return (
++    <div className="blog-share">
++      <span className="blog-share-label t-label" style={{ color: "var(--navy-300)" }}>Compartilhar:</span>
++      <a className="blog-share-btn blog-share-wpp" href={`https://wa.me/?text=${wppText}`} target="_blank" rel="noopener noreferrer" aria-label="Compartilhar no WhatsApp">
++        <Icon name="phone" size={16} color="var(--cream-500)" /> WhatsApp
++      </a>
++      <button className="blog-share-btn blog-share-copy" onClick={copy} aria-label="Copiar link">
++        <Icon name={copied ? "check" : "download"} size={16} color="var(--navy-900)" />
++        {copied ? "Copiado!" : "Copiar link"}
++      </button>
++    </div>
++  );
++}
++
++/* ---- JSON-LD builder ---- */
++function buildJsonLd(post, url) {
++  const base = {
++    "@context": "https://schema.org",
++    "author": { "@type": "Organization", "name": "Malex" },
++    "publisher": {
++      "@type": "Organization",
++      "name": "Malex",
++      "logo": { "@type": "ImageObject", "url": `${SITE_URL}/favicon.svg` }
++    },
++    "datePublished": post.published_at || post.created_at,
++    "dateModified": post.updated_at || post.published_at || post.created_at,
++    "url": url,
++  };
++  if (post.schema_type === "FAQ") {
++    return JSON.stringify({
++      ...base,
++      "@type": "FAQPage",
++      "name": post.seo_title || post.title,
++      "description": post.meta_description || post.summary,
++    });
++  }
++  if (post.schema_type === "LocalBusiness") {
++    return JSON.stringify({
++      ...base,
++      "@type": "LocalBusiness",
++      "name": post.seo_title || post.title,
++      "description": post.meta_description || post.summary,
++      "image": post.cover_image_url,
++    });
++  }
++  return JSON.stringify({
++    ...base,
++    "@type": "Article",
++    "headline": post.seo_title || post.title,
++    "description": post.meta_description || post.summary,
++    "image": post.cover_image_url ? [post.cover_image_url] : undefined,
++    "mainEntityOfPage": { "@type": "WebPage", "@id": url },
++  });
++}
++
++/* ---- Main ---- */
++export default function BlogPost() {
++  const { slug } = useParams();
++  const navigate = useNavigate();
++  const [post, setPost] = useState(null);
++  const [related, setRelated] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [notFound, setNotFound] = useState(false);
++
++  useEffect(() => {
++    setLoading(true);
++    setNotFound(false);
++    getPublishedPost(slug).then(({ data, error }) => {
++      if (error || !data) { setNotFound(true); setLoading(false); return; }
++      setPost(data);
++      setLoading(false);
++      getRelatedPosts(data.category, slug).then(setRelated);
++    });
++  }, [slug]);
++
++  if (loading) {
++    return (
++      <>
++        <BlogNav />
++        <div className="blog-post-skeleton-wrap">
++          <div className="blog-post-skeleton">
++            <div className="skeleton" style={{ height: 24, width: 120, borderRadius: 8 }} />
++            <div className="skeleton" style={{ height: 48, marginTop: 16, borderRadius: 8 }} />
++            <div className="skeleton" style={{ height: 48, width: "70%", borderRadius: 8 }} />
++            <div className="skeleton" style={{ height: 300, marginTop: 32, borderRadius: 16 }} />
++            {Array.from({ length: 6 }).map((_, i) => (
++              <div key={i} className="skeleton" style={{ height: 18, marginTop: 12, width: i % 3 === 0 ? "85%" : "100%", borderRadius: 4 }} />
++            ))}
++          </div>
++        </div>
++      </>
++    );
++  }
++
++  if (notFound) {
++    return (
++      <>
++        <BlogNav />
++        <div className="blog-notfound on-navy">
++          <Icon name="package" size={48} color="var(--navy-400)" />
++          <h1 className="t-h2" style={{ color: "var(--cream-500)", marginTop: 16 }}>Artigo não encontrado</h1>
++          <p className="t-body" style={{ color: "var(--navy-300)", marginTop: 8 }}>O artigo que você procura não existe ou foi removido.</p>
++          <Link to="/blog" className="btn btn-primary btn-cta" style={{ marginTop: 24 }}>Ver todos os artigos</Link>
++        </div>
++      </>
++    );
++  }
++
++  const postUrl = `${SITE_URL}/blog/${post.slug}`;
++  const seTitle = post.seo_title || post.title;
++  const seDesc = post.meta_description || post.summary || "";
++
++  return (
++    <>
++      <Helmet>
++        <title>{seTitle} — Blog Malex</title>
++        <meta name="description" content={seDesc} />
++        <link rel="canonical" href={postUrl} />
++        {post.main_keyword && <meta name="keywords" content={[post.main_keyword, ...(post.secondary_keywords || [])].join(", ")} />}
++        <meta property="og:type" content="article" />
++        <meta property="og:title" content={seTitle} />
++        <meta property="og:description" content={seDesc} />
++        <meta property="og:url" content={postUrl} />
++        {post.cover_image_url && <meta property="og:image" content={post.cover_image_url} />}
++        <meta property="article:published_time" content={post.published_at || post.created_at} />
++        <meta property="article:modified_time" content={post.updated_at} />
++        <meta property="article:author" content="Malex" />
++        <meta property="article:section" content={post.category} />
++        {(post.tags || []).map((t) => <meta key={t} property="article:tag" content={t} />)}
++        <script type="application/ld+json">{buildJsonLd(post, postUrl)}</script>
++      </Helmet>
++
++      <BlogNav />
++
++      <main className="blog-post-main">
++        {/* Breadcrumb */}
++        <div className="blog-breadcrumb on-navy">
++          <div className="container blog-breadcrumb-inner">
++            <Link to="/blog">Blog</Link>
++            <Icon name="chevron-right" size={14} color="var(--navy-400)" />
++            <span>{post.category}</span>
++          </div>
++        </div>
++
++        {/* Header */}
++        <header className="blog-post-header on-navy">
++          <div className="container blog-post-header-inner">
++            <span className="blog-cat-pill">{post.category}</span>
++            <h1 className="blog-post-title">{post.title}</h1>
++            {post.summary && <p className="blog-post-summary">{post.summary}</p>}
++            <div className="blog-post-meta">
++              <span className="blog-post-meta-item">
++                <Icon name="user" size={14} color="var(--navy-400)" /> {post.author || "Malex"}
++              </span>
++              {post.published_at && (
++                <span className="blog-post-meta-item">
++                  <Icon name="calendar-check" size={14} color="var(--navy-400)" /> {fmtDate(post.published_at)}
++                </span>
++              )}
++              <span className="blog-post-meta-item">
++                <Icon name="clock" size={14} color="var(--navy-400)" /> {post.read_time_min ?? 1} min de leitura
++              </span>
++            </div>
++          </div>
++        </header>
++
++        {/* Cover image */}
++        {post.cover_image_url && (
++          <div className="blog-post-cover-wrap">
++            <div className="container">
++              <img
++                className="blog-post-cover"
++                src={post.cover_image_url}
++                alt={post.cover_image_alt || post.title}
++                loading="eager"
++              />
++            </div>
++          </div>
++        )}
++
++        {/* Body */}
++        <article className="blog-post-body">
++          <div className="container blog-post-body-inner">
++            <ReactMarkdown
++              remarkPlugins={[remarkGfm]}
++              components={{
++                h2: ({ children }) => <h2 className="t-h2 blog-md-h2">{children}</h2>,
++                h3: ({ children }) => <h3 className="t-h3 blog-md-h3">{children}</h3>,
++                h4: ({ children }) => <h4 className="t-h4 blog-md-h4">{children}</h4>,
++                p:  ({ children }) => <p className="t-body blog-md-p">{children}</p>,
++                a:  ({ href, children }) => <a href={href} className="blog-md-a" target={href?.startsWith("http") ? "_blank" : undefined} rel={href?.startsWith("http") ? "noopener noreferrer" : undefined}>{children}</a>,
++                ul: ({ children }) => <ul className="blog-md-ul">{children}</ul>,
++                ol: ({ children }) => <ol className="blog-md-ol">{children}</ol>,
++                li: ({ children }) => <li className="blog-md-li">{children}</li>,
++                blockquote: ({ children }) => <blockquote className="blog-md-blockquote">{children}</blockquote>,
++                code: ({ inline, children }) => inline
++                  ? <code className="blog-md-code-inline">{children}</code>
++                  : <pre className="blog-md-pre"><code>{children}</code></pre>,
++                img: ({ src, alt }) => <img src={src} alt={alt} className="blog-md-img" loading="lazy" />,
++                hr: () => <hr className="blog-md-hr" />,
++                table: ({ children }) => <div className="blog-md-table-wrap"><table className="blog-md-table">{children}</table></div>,
++              }}
++            >
++              {post.body}
++            </ReactMarkdown>
++
++            {/* Tags */}
++            {post.tags?.length > 0 && (
++              <div className="blog-tags">
++                {post.tags.map((t) => <span key={t} className="blog-tag">{t}</span>)}
++              </div>
++            )}
++
++            {/* Share */}
++            <ShareBar url={postUrl} title={post.title} />
++          </div>
++        </article>
++
++        {/* Related */}
++        {related.length > 0 && (
++          <section className="blog-related-section on-navy">
++            <div className="container">
++              <h2 className="t-h3 blog-related-heading">Artigos relacionados</h2>
++              <div className="blog-related-grid">
++                {related.map((r) => <RelatedCard key={r.id} post={r} />)}
++              </div>
++            </div>
++          </section>
++        )}
++
++        {/* CTA */}
++        <section className="blog-cta-band on-navy">
++          <div className="container blog-cta-inner">
++            <div>
++              <h2 className="t-h3" style={{ color: "var(--cream-500)", margin: 0 }}>Guarde sua mala com a gente.</h2>
++              <p className="t-body" style={{ color: "var(--navy-300)", marginTop: 6 }}>Locker monitorado 24h, a partir de R$ 50/dia. Reserva em segundos.</p>
++            </div>
++            <a className="btn btn-primary btn-cta" href="/">Reservar locker</a>
++          </div>
++        </section>
++      </main>
++
++      <footer className="blog-footer on-navy">
++        <div className="container blog-footer-inner">
++          <MalexLogo height={20} />
++          <span className="t-body-sm" style={{ color: "var(--navy-300)" }}>© {new Date().getFullYear()} Malex.</span>
++          <div className="blog-footer-links">
++            <Link to="/">Site</Link>
++            <Link to="/blog">Blog</Link>
++            <a href={MALEX_CONTACT.whatsapp} target="_blank" rel="noopener noreferrer">WhatsApp</a>
++          </div>
++        </div>
++      </footer>
++    </>
++  );
++}
+diff --git a/src/styles/blog.css b/src/styles/blog.css
+new file mode 100644
+index 0000000..d8becf6
+--- /dev/null
++++ b/src/styles/blog.css
+@@ -0,0 +1,688 @@
++/* ============================================================
++   MALEX · blog.css — estilos para /blog e /blog/:slug
++   Paleta: navy base, orange atenção, royal variação, cream calor.
++   ============================================================ */
++
++/* ---- Nav: link ativo no blog ---- */
++.blog-nav-active {
++  color: var(--orange-400) !important;
++  font-weight: 600;
++}
++
++/* ---- Hero da listagem ---- */
++.blog-hero {
++  padding: var(--s-11) 0 var(--s-9);
++  background: var(--navy-900);
++  border-bottom: 1px solid var(--navy-700);
++}
++.blog-hero-inner {
++  max-width: var(--container-landing);
++  text-align: center;
++}
++.blog-hero-title {
++  color: var(--cream-500);
++  margin: var(--s-2) 0 var(--s-4);
++}
++.blog-hero-sub {
++  color: var(--navy-200);
++  max-width: 560px;
++  margin: 0 auto;
++}
++
++/* ---- Filtro de categorias ---- */
++.blog-filter-bar {
++  padding: var(--s-5) 0;
++  border-bottom: 1px solid var(--navy-700);
++  position: sticky;
++  top: 68px;
++  z-index: 20;
++  background: var(--navy-900);
++}
++.blog-filters {
++  display: flex;
++  gap: var(--s-2);
++  flex-wrap: wrap;
++  align-items: center;
++}
++.blog-filter-btn {
++  font-family: var(--font-body);
++  font-size: 13px;
++  font-weight: 600;
++  line-height: 1.3;
++  color: var(--navy-300);
++  background: var(--navy-800);
++  border: 1.5px solid var(--navy-600);
++  border-radius: var(--radius-pill);
++  padding: 6px 16px;
++  cursor: pointer;
++  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
++  white-space: nowrap;
++}
++.blog-filter-btn:hover { color: var(--cream-500); border-color: var(--navy-400); }
++.blog-filter-btn.on {
++  background: var(--orange-500);
++  border-color: var(--orange-500);
++  color: var(--cream-500);
++}
++
++/* ---- Grid de posts ---- */
++.blog-grid-section {
++  padding: var(--s-8) 0 var(--s-11);
++}
++.blog-grid {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: var(--s-5);
++}
++@media (max-width: 900px) { .blog-grid { grid-template-columns: repeat(2, 1fr); } }
++@media (max-width: 580px) { .blog-grid { grid-template-columns: 1fr; } }
++
++/* ---- PostCard ---- */
++.blog-card {
++  display: flex;
++  flex-direction: column;
++  background: var(--navy-800);
++  border: 1.5px solid var(--navy-700);
++  border-radius: var(--radius-bolt);
++  overflow: hidden;
++  text-decoration: none;
++  transition: border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
++}
++.blog-card:hover {
++  border-color: var(--orange-500);
++  transform: translateY(-3px);
++  box-shadow: 0 12px 32px rgba(10,37,64,.32);
++}
++.blog-card-img {
++  width: 100%;
++  aspect-ratio: 16/9;
++  overflow: hidden;
++  background: var(--navy-700);
++}
++.blog-card-img img {
++  width: 100%; height: 100%;
++  object-fit: cover;
++  display: block;
++  transition: transform 0.3s var(--ease-firm);
++}
++.blog-card:hover .blog-card-img img { transform: scale(1.04); }
++.blog-card-img-placeholder {
++  width: 100%; height: 100%;
++  display: flex; align-items: center; justify-content: center;
++}
++.blog-card-body {
++  display: flex;
++  flex-direction: column;
++  gap: var(--s-2);
++  padding: var(--s-4);
++  flex: 1;
++}
++.blog-cat-pill {
++  font-family: var(--font-body);
++  font-size: 11px;
++  font-weight: 600;
++  text-transform: uppercase;
++  letter-spacing: 0.07em;
++  color: var(--orange-400);
++  background: var(--orange-50);
++  border-radius: var(--radius-pill);
++  padding: 3px 10px;
++  display: inline-block;
++  width: fit-content;
++}
++.on-navy .blog-cat-pill {
++  background: rgba(255,110,0,.12);
++  color: var(--orange-400);
++}
++.blog-card-title {
++  font-family: var(--font-display);
++  font-weight: 700;
++  font-size: 17px;
++  line-height: 1.25;
++  letter-spacing: -0.01em;
++  color: var(--cream-500);
++  margin: 0;
++}
++.blog-card-summary {
++  font-family: var(--font-body);
++  font-size: 14px;
++  line-height: 1.5;
++  color: var(--navy-200);
++  margin: 0;
++  flex: 1;
++  display: -webkit-box;
++  -webkit-line-clamp: 3;
++  -webkit-box-orient: vertical;
++  overflow: hidden;
++}
++.blog-card-meta {
++  display: flex;
++  gap: var(--s-3);
++  flex-wrap: wrap;
++  margin-top: auto;
++  padding-top: var(--s-2);
++  border-top: 1px solid var(--navy-700);
++}
++.blog-card-meta-item {
++  display: flex;
++  align-items: center;
++  gap: 5px;
++  font-family: var(--font-body);
++  font-size: 12px;
++  color: var(--navy-300);
++}
++
++/* ---- Skeleton de card ---- */
++.blog-card-skeleton {
++  aspect-ratio: 3/4;
++  border-radius: var(--radius-bolt);
++}
++@media (max-width: 580px) { .blog-card-skeleton { aspect-ratio: 16/9; } }
++
++/* ---- Empty state ---- */
++.blog-empty {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: var(--s-3);
++  padding: var(--s-11) 0;
++}
++
++/* ---- Footer do blog ---- */
++.blog-footer {
++  border-top: 1px solid var(--navy-700);
++  padding: var(--s-6) 0;
++}
++.blog-footer-inner {
++  display: flex;
++  align-items: center;
++  gap: var(--s-5);
++  flex-wrap: wrap;
++}
++.blog-footer-links {
++  display: flex;
++  gap: var(--s-4);
++  margin-left: auto;
++}
++.blog-footer-links a {
++  font-family: var(--font-body);
++  font-size: 14px;
++  color: var(--navy-300);
++  text-decoration: none;
++  transition: color var(--dur-fast);
++}
++.blog-footer-links a:hover { color: var(--cream-500); }
++
++/* ============================================================
++   POST INDIVIDUAL (/blog/:slug)
++   ============================================================ */
++
++/* ---- Skeleton de carregamento ---- */
++.blog-post-skeleton-wrap {
++  min-height: 80vh;
++  display: flex;
++  justify-content: center;
++  align-items: flex-start;
++  padding: var(--s-8) var(--s-5);
++  background: var(--navy-900);
++}
++.blog-post-skeleton {
++  width: 100%;
++  max-width: 720px;
++  display: flex;
++  flex-direction: column;
++  gap: var(--s-1);
++}
++
++/* ---- 404 do post ---- */
++.blog-notfound {
++  min-height: 80vh;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  gap: var(--s-3);
++  padding: var(--s-9) var(--s-5);
++}
++
++/* ---- Breadcrumb ---- */
++.blog-breadcrumb {
++  padding: var(--s-3) 0;
++  border-bottom: 1px solid var(--navy-700);
++}
++.blog-breadcrumb-inner {
++  display: flex;
++  align-items: center;
++  gap: var(--s-2);
++}
++.blog-breadcrumb a {
++  font-family: var(--font-body);
++  font-size: 13px;
++  color: var(--navy-300);
++  text-decoration: none;
++  transition: color var(--dur-fast);
++}
++.blog-breadcrumb a:hover { color: var(--orange-400); }
++.blog-breadcrumb span {
++  font-family: var(--font-body);
++  font-size: 13px;
++  color: var(--navy-400);
++}
++
++/* ---- Header do post ---- */
++.blog-post-header {
++  padding: var(--s-9) 0 var(--s-7);
++}
++.blog-post-header-inner {
++  max-width: var(--container-read);
++  display: flex;
++  flex-direction: column;
++  gap: var(--s-3);
++}
++.blog-post-title {
++  font-family: var(--font-display);
++  font-weight: 700;
++  font-size: clamp(28px, 5vw, 44px);
++  line-height: 1.1;
++  letter-spacing: -0.03em;
++  color: var(--cream-500);
++  margin: 0;
++}
++.blog-post-summary {
++  font-family: var(--font-body);
++  font-size: var(--t-body-lg-size);
++  line-height: 1.55;
++  color: var(--navy-200);
++  margin: 0;
++}
++.blog-post-meta {
++  display: flex;
++  gap: var(--s-4);
++  flex-wrap: wrap;
++  padding-top: var(--s-2);
++  border-top: 1px solid var(--navy-700);
++}
++.blog-post-meta-item {
++  display: flex;
++  align-items: center;
++  gap: 5px;
++  font-family: var(--font-body);
++  font-size: 13px;
++  color: var(--navy-300);
++}
++
++/* ---- Cover image ---- */
++.blog-post-cover-wrap {
++  background: var(--navy-900);
++  padding: 0 0 var(--s-7);
++}
++.blog-post-cover {
++  width: 100%;
++  max-width: var(--container-read);
++  max-height: 480px;
++  object-fit: cover;
++  border-radius: var(--radius-bolt);
++  display: block;
++}
++
++/* ---- Body (markdown) ---- */
++.blog-post-body {
++  background: var(--navy-900);
++  padding-bottom: var(--s-8);
++}
++.blog-post-body-inner {
++  max-width: var(--container-read);
++}
++
++/* Markdown typography */
++.blog-md-h2 {
++  color: var(--cream-500);
++  margin: var(--s-7) 0 var(--s-3);
++  padding-top: var(--s-5);
++  border-top: 1px solid var(--navy-700);
++}
++.blog-md-h3 {
++  color: var(--cream-500);
++  margin: var(--s-6) 0 var(--s-2);
++}
++.blog-md-h4 {
++  color: var(--cream-600);
++  margin: var(--s-5) 0 var(--s-2);
++}
++.blog-md-p {
++  color: var(--navy-100);
++  margin: 0 0 var(--s-4);
++}
++.blog-md-a {
++  color: var(--orange-400);
++  text-decoration: underline;
++  text-underline-offset: 3px;
++  transition: color var(--dur-fast);
++}
++.blog-md-a:hover { color: var(--orange-300); }
++.blog-md-ul,
++.blog-md-ol {
++  color: var(--navy-100);
++  font-family: var(--font-body);
++  font-size: var(--t-body-size);
++  line-height: var(--t-body-lh);
++  padding-left: var(--s-6);
++  margin: 0 0 var(--s-4);
++}
++.blog-md-li { margin-bottom: var(--s-1); }
++.blog-md-blockquote {
++  border-left: 4px solid var(--orange-500);
++  background: var(--navy-800);
++  border-radius: 0 var(--radius-hard) var(--radius-hard) 0;
++  margin: var(--s-5) 0;
++  padding: var(--s-4) var(--s-5);
++}
++.blog-md-blockquote p { color: var(--cream-600) !important; margin: 0 !important; font-style: italic; }
++.blog-md-code-inline {
++  font-family: var(--font-mono-label);
++  font-size: 0.88em;
++  background: var(--navy-800);
++  color: var(--orange-300);
++  border: 1px solid var(--navy-600);
++  border-radius: var(--radius-hard);
++  padding: 1px 6px;
++}
++.blog-md-pre {
++  background: var(--navy-800);
++  border: 1px solid var(--navy-600);
++  border-radius: var(--radius-hard);
++  padding: var(--s-4);
++  overflow-x: auto;
++  margin: var(--s-4) 0;
++}
++.blog-md-pre code {
++  font-family: var(--font-mono-label);
++  font-size: 13px;
++  color: var(--cream-600);
++  background: transparent;
++  border: none;
++  padding: 0;
++}
++.blog-md-img {
++  width: 100%;
++  border-radius: var(--radius-bolt-sm);
++  margin: var(--s-5) 0;
++  display: block;
++}
++.blog-md-hr {
++  border: none;
++  border-top: 1px solid var(--navy-700);
++  margin: var(--s-7) 0;
++}
++.blog-md-table-wrap { overflow-x: auto; margin: var(--s-5) 0; }
++.blog-md-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-family: var(--font-body);
++  font-size: 14px;
++  color: var(--navy-100);
++}
++.blog-md-table th,
++.blog-md-table td {
++  padding: 10px 14px;
++  border: 1px solid var(--navy-600);
++  text-align: left;
++}
++.blog-md-table th {
++  background: var(--navy-800);
++  color: var(--cream-500);
++  font-weight: 600;
++}
++.blog-md-table tr:nth-child(even) td { background: var(--navy-800); }
++
++/* ---- Tags ---- */
++.blog-tags {
++  display: flex;
++  gap: var(--s-2);
++  flex-wrap: wrap;
++  margin: var(--s-6) 0 var(--s-5);
++  padding-top: var(--s-5);
++  border-top: 1px solid var(--navy-700);
++}
++.blog-tag {
++  font-family: var(--font-body);
++  font-size: 12px;
++  font-weight: 600;
++  color: var(--navy-300);
++  background: var(--navy-800);
++  border: 1px solid var(--navy-600);
++  border-radius: var(--radius-pill);
++  padding: 4px 12px;
++}
++
++/* ---- Share ---- */
++.blog-share {
++  display: flex;
++  align-items: center;
++  gap: var(--s-3);
++  flex-wrap: wrap;
++  margin-top: var(--s-5);
++  padding: var(--s-4);
++  background: var(--navy-800);
++  border: 1px solid var(--navy-700);
++  border-radius: var(--radius-bolt);
++}
++.blog-share-label { color: var(--navy-300); }
++.blog-share-btn {
++  display: inline-flex;
++  align-items: center;
++  gap: var(--s-2);
++  font-family: var(--font-body);
++  font-size: 14px;
++  font-weight: 600;
++  padding: 8px 18px;
++  border-radius: var(--radius-pill);
++  border: none;
++  cursor: pointer;
++  transition: opacity var(--dur-fast);
++  text-decoration: none;
++}
++.blog-share-btn:hover { opacity: 0.85; }
++.blog-share-wpp {
++  background: #25D366;
++  color: var(--cream-500);
++}
++.blog-share-copy {
++  background: var(--navy-700);
++  border: 1.5px solid var(--navy-500);
++  color: var(--cream-500);
++}
++
++/* ---- Related ---- */
++.blog-related-section {
++  padding: var(--s-9) 0;
++  border-top: 1px solid var(--navy-700);
++}
++.blog-related-heading {
++  color: var(--cream-500);
++  margin: 0 0 var(--s-6);
++}
++.blog-related-grid {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: var(--s-4);
++}
++@media (max-width: 860px) { .blog-related-grid { grid-template-columns: repeat(2, 1fr); } }
++@media (max-width: 520px) { .blog-related-grid { grid-template-columns: 1fr; } }
++.blog-related-card {
++  display: flex;
++  flex-direction: column;
++  background: var(--navy-800);
++  border: 1.5px solid var(--navy-700);
++  border-radius: var(--radius-bolt-sm);
++  overflow: hidden;
++  text-decoration: none;
++  transition: border-color var(--dur-fast), transform var(--dur-fast);
++}
++.blog-related-card:hover {
++  border-color: var(--orange-500);
++  transform: translateY(-2px);
++}
++.blog-related-img {
++  width: 100%;
++  aspect-ratio: 16/9;
++  object-fit: cover;
++  display: block;
++}
++.blog-related-img-placeholder {
++  display: flex; align-items: center; justify-content: center;
++  background: var(--navy-700);
++}
++.blog-related-body {
++  padding: var(--s-3) var(--s-4);
++  display: flex;
++  flex-direction: column;
++  gap: var(--s-1);
++}
++.blog-related-title {
++  font-family: var(--font-display);
++  font-weight: 700;
++  font-size: 15px;
++  line-height: 1.3;
++  color: var(--cream-500);
++  margin: 0;
++}
++
++/* ---- CTA band ---- */
++.blog-cta-band {
++  padding: var(--s-8) 0;
++  border-top: 1px solid var(--navy-700);
++  background: linear-gradient(135deg, var(--navy-800) 0%, var(--navy-900) 100%);
++}
++.blog-cta-inner {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--s-5);
++  flex-wrap: wrap;
++}
++@media (max-width: 580px) { .blog-cta-inner { flex-direction: column; align-items: flex-start; } }
++
++/* ============================================================
++   CMS ADMIN — tab Blog no painel
++   ============================================================ */
++
++/* Lista de posts */
++.blog-cms-toolbar {
++  display: flex;
++  align-items: center;
++  gap: var(--s-3);
++  flex-wrap: wrap;
++  margin-bottom: var(--s-5);
++}
++.blog-cms-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-family: var(--font-body);
++  font-size: 14px;
++}
++.blog-cms-table th {
++  padding: 10px 12px;
++  text-align: left;
++  color: var(--navy-300);
++  font-weight: 600;
++  border-bottom: 1px solid var(--navy-600);
++  white-space: nowrap;
++}
++.blog-cms-table td {
++  padding: 10px 12px;
++  color: var(--cream-500);
++  border-bottom: 1px solid var(--navy-700);
++  vertical-align: middle;
++}
++.blog-cms-table tr:hover td { background: var(--navy-800); }
++
++.blog-status-pill {
++  font-size: 11px;
++  font-weight: 600;
++  font-family: var(--font-body);
++  text-transform: uppercase;
++  letter-spacing: 0.07em;
++  padding: 3px 10px;
++  border-radius: var(--radius-pill);
++}
++.blog-status-draft {
++  background: var(--navy-700);
++  color: var(--navy-300);
++}
++.blog-status-published {
++  background: var(--success-bg);
++  color: var(--success);
++}
++
++/* Editor */
++.blog-editor-wrap {
++  display: flex;
++  flex-direction: column;
++  gap: var(--s-4);
++}
++.blog-editor-grid {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: var(--s-4);
++}
++@media (max-width: 720px) { .blog-editor-grid { grid-template-columns: 1fr; } }
++.blog-editor-cover-preview {
++  width: 100%;
++  max-height: 200px;
++  object-fit: cover;
++  border-radius: var(--radius-hard);
++  margin-top: var(--s-2);
++  display: block;
++}
++
++/* Markdown toolbar */
++.blog-md-toolbar {
++  display: flex;
++  gap: 4px;
++  flex-wrap: wrap;
++  padding: var(--s-2) var(--s-3);
++  background: var(--navy-700);
++  border: 1px solid var(--navy-600);
++  border-bottom: none;
++  border-radius: var(--radius-hard) var(--radius-hard) 0 0;
++}
++.blog-md-toolbar-btn {
++  font-family: var(--font-mono-label);
++  font-size: 12px;
++  font-weight: 600;
++  color: var(--navy-200);
++  background: transparent;
++  border: 1px solid transparent;
++  border-radius: var(--radius-hard);
++  padding: 3px 8px;
++  cursor: pointer;
++  transition: background var(--dur-fast), color var(--dur-fast);
++  white-space: nowrap;
++}
++.blog-md-toolbar-btn:hover {
++  background: var(--navy-600);
++  color: var(--cream-500);
++}
++.blog-md-toolbar-sep {
++  width: 1px;
++  background: var(--navy-600);
++  margin: 2px 4px;
++}
++.blog-md-textarea {
++  font-family: var(--font-mono-label);
++  font-size: 13px;
++  line-height: 1.7;
++  color: var(--cream-500);
++  background: var(--navy-800);
++  border: 1px solid var(--navy-600);
++  border-top: none;
++  border-radius: 0 0 var(--radius-hard) var(--radius-hard);
++  padding: var(--s-4);
++  width: 100%;
++  min-height: 400px;
++  resize: vertical;
++  outline: none;
++  box-sizing: border-box;
++}
++.blog-md-textarea:focus { border-color: var(--royal-500); }
+diff --git a/supabase/schema_blog.sql b/supabase/schema_blog.sql
+new file mode 100644
+index 0000000..2f9c11b
+--- /dev/null
++++ b/supabase/schema_blog.sql
+@@ -0,0 +1,71 @@
++-- ============================================================
++-- Malex — schema BLOG: posts, categorias, imagens, RLS.
++-- Rode no Supabase → SQL Editor → New query → Run. (Idempotente.)
++-- ============================================================
++
++create table if not exists public.blog_posts (
++  id                  uuid primary key default gen_random_uuid(),
++  created_at          timestamptz not null default now(),
++  updated_at          timestamptz not null default now(),
++  slug                text unique not null,
++  title               text not null,
++  seo_title           text,
++  summary             text,
++  body                text not null default '',
++  meta_description    text,
++  category            text not null,
++  tags                text[],
++  main_keyword        text,
++  secondary_keywords  text[],
++  schema_type         text not null default 'Article' check (schema_type in ('Article','FAQ','LocalBusiness')),
++  cover_image_url     text,
++  cover_image_alt     text,
++  status              text not null default 'draft' check (status in ('draft','published')),
++  published_at        timestamptz,
++  author              text not null default 'Malex',
++  read_time_min       integer
++);
++
++create index if not exists blog_posts_slug_idx        on public.blog_posts(slug);
++create index if not exists blog_posts_category_idx    on public.blog_posts(category);
++create index if not exists blog_posts_status_idx      on public.blog_posts(status);
++create index if not exists blog_posts_published_idx   on public.blog_posts(published_at desc);
++
++alter table public.blog_posts enable row level security;
++
++-- Anônimos só leem publicados
++drop policy if exists "blog_anon_read" on public.blog_posts;
++create policy "blog_anon_read" on public.blog_posts
++  for select to anon
++  using (status = 'published');
++
++-- Autenticados (gestores) podem ler e escrever tudo
++drop policy if exists "blog_auth_all" on public.blog_posts;
++create policy "blog_auth_all" on public.blog_posts
++  for all to authenticated
++  using (true) with check (true);
++
++-- ============================================================
++-- Storage: bucket público para imagens de capa
++-- (execute como service_role ou via painel Storage)
++-- ============================================================
++insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
++values (
++  'blog-images',
++  'blog-images',
++  true,
++  5242880,  -- 5 MB
++  ARRAY['image/jpeg','image/png','image/webp','image/avif','image/gif']
++)
++on conflict (id) do update set public = true;
++
++drop policy if exists "blog_images_public_read" on storage.objects;
++create policy "blog_images_public_read" on storage.objects
++  for select to anon, authenticated
++  using (bucket_id = 'blog-images');
++
++drop policy if exists "blog_images_auth_write" on storage.objects;
++create policy "blog_images_auth_write" on storage.objects
++  for all to authenticated
++  using (bucket_id = 'blog-images')
++  with check (bucket_id = 'blog-images');
+-- 
+2.43.0
+
