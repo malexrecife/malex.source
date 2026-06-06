@@ -175,6 +175,84 @@
 .adm-modal .field, .adm-login .field { background: var(--navy-900); border: 1.5px solid var(--navy-600); color: var(--cream-500); }
 .adm-modal .field:focus, .adm-login .field:focus { border-color: var(--orange-500); }
 
+/* ===== TOAST SYSTEM ===== */
+.toast-area { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 200; pointer-events: none; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: var(--radius-bolt); font-family: var(--font-body); font-weight: 600; font-size: 14px; max-width: 340px; pointer-events: auto; animation: toast-in .22s var(--ease-firm); box-shadow: var(--shadow-float); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.toast-success { background: #1a3d2b; border: 1px solid #4ADE80; color: #4ADE80; }
+.toast-error   { background: #3d1a1a; border: 1px solid #F4796F; color: #F4796F; }
+.toast-info    { background: var(--navy-700); border: 1px solid var(--navy-500); color: var(--cream-500); }
+.toast-msg { flex: 1; }
+.toast-close { background: none; border: none; color: inherit; opacity: .7; cursor: pointer; padding: 2px; display: flex; }
+.toast-close:hover { opacity: 1; }
+
+/* ===== CONFIRM MODAL ===== */
+.adm-confirm { width: 100%; max-width: 400px; background: var(--navy-800); border: 1px solid var(--navy-700); border-radius: var(--radius-bolt-lg); padding: 28px; }
+.adm-confirm-actions { display: flex; gap: 12px; justify-content: flex-end; }
+
+/* ===== SKELETON LOADERS ===== */
+@keyframes skel-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton { background: linear-gradient(90deg, var(--navy-800) 25%, var(--navy-700) 50%, var(--navy-800) 75%); background-size: 800px 100%; animation: skel-shimmer 1.4s infinite; border-radius: 6px; display: block; }
+.skel-line { display: block; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--navy-700) 25%, var(--navy-600) 50%, var(--navy-700) 75%); background-size: 800px 100%; animation: skel-shimmer 1.4s infinite; }
+.skel-w-20 { width: 20%; }
+.skel-w-40 { width: 40%; }
+.skel-w-60 { width: 60%; }
+.skel-w-80 { width: 80%; }
+.skel-w-100 { width: 100%; }
+.adm-skel-rows { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
+.adm-skel-row { display: flex; flex-direction: column; gap: 6px; background: var(--navy-800); border: 1px solid var(--navy-700); border-radius: var(--radius-bolt); padding: 16px; }
+
+/* ===== OVERSTAY ===== */
+.adm-locker.overstay { border-color: var(--error) !important; }
+.adm-locker.overstay .adm-locker-status { color: #F4796F; }
+.adm-overstay-badge { display: inline-flex; align-items: center; gap: 4px; background: rgba(217,45,32,.18); color: #F4796F; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-pill); margin-top: 4px; }
+.adm-stat-danger .adm-stat-n { color: #F4796F; }
+.adm-unit-overstay { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: var(--error); color: #fff; border-radius: 50%; font-size: 9px; font-weight: 700; margin-left: 4px; }
+
+/* ===== PAGINATION ===== */
+.adm-paginator { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 4px; border-top: 1px solid var(--navy-700); margin-top: 8px; }
+.adm-paginator-info { font-size: 13px; color: var(--navy-300); }
+
+/* ===== BETTER CHARTS ===== */
+.adm-chart-wrap { position: relative; }
+.adm-chart-max { position: absolute; left: 0; top: 0; font-size: 9px; color: var(--navy-400); }
+.adm-bar-col { position: relative; }
+.adm-bar-col:hover .adm-bar-tt { opacity: 1; pointer-events: auto; }
+.adm-bar-tt { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--navy-700); border: 1px solid var(--navy-600); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--cream-500); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 10; }
+.adm-mcard-delta { font-size: 11px; font-weight: 600; margin-top: 2px; }
+.adm-mcard-delta.up { color: #4ADE80; }
+.adm-mcard-delta.dn { color: #F4796F; }
+
+/* ===== MARKETING VIEW ===== */
+.adm-mkt { padding: 28px 32px; }
+.adm-funnel { display: flex; align-items: flex-end; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+.adm-funnel-step { background: var(--navy-800); border: 1px solid var(--navy-700); border-radius: var(--radius-bolt); padding: 14px 18px; min-width: 110px; text-align: center; }
+.adm-funnel-n { font-family: var(--font-display); font-weight: 700; font-size: 26px; color: var(--cream-500); }
+.adm-funnel-l { font-size: 12px; color: var(--navy-300); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em; }
+.adm-funnel-arr { color: var(--navy-500); font-size: 20px; align-self: center; }
+.adm-funnel-pct { font-size: 12px; font-weight: 600; color: var(--orange-400); margin-top: 4px; }
+
+/* ===== AUDIT LOG ===== */
+.adm-audit { display: flex; flex-direction: column; gap: 6px; }
+.adm-audit-row { display: grid; grid-template-columns: 120px 100px 1fr; gap: 12px; align-items: center; padding: 10px 14px; background: var(--navy-800); border-radius: var(--radius-hard); font-size: 13px; }
+.adm-audit-ts { color: var(--navy-300); font-variant-numeric: tabular-nums; }
+.adm-audit-action { font-weight: 600; color: var(--orange-400); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+.adm-audit-detail { color: var(--navy-100); }
+
+/* ===== USER ROLE BADGE ===== */
+.adm-role-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--navy-300); background: var(--navy-700); padding: 3px 10px; border-radius: var(--radius-pill); }
+
+/* ===== FORGOT PASSWORD ===== */
+.adm-forgot { background: none; border: none; color: var(--navy-300); font-family: var(--font-body); font-size: 13px; text-decoration: underline; cursor: pointer; margin-top: 4px; padding: 0; align-self: flex-start; }
+.adm-forgot:hover { color: var(--cream-500); }
+.adm-reset-success { background: var(--navy-900); border: 1px solid #4ADE80; color: #4ADE80; border-radius: var(--radius-hard); padding: 10px 14px; font-size: 13px; font-weight: 600; margin-top: 10px; }
+
+/* ===== UNIT CARD SKELETON (wizard) ===== */
+.unit-card-skel { cursor: default; opacity: .7; display: flex; flex-direction: column; justify-content: center; padding: 20px; }
+
+/* ===== PAYMENT PENDING BADGE ===== */
+.adm-pay-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #F0A93C; margin-top: 4px; }
+
 @media (max-width: 760px) {
   .adm-body { grid-template-columns: 1fr; }
   .adm-side { border-right: none; border-bottom: 1px solid var(--navy-700); max-height: 38vh; }
@@ -187,4 +265,6 @@
   .adm-finance { padding: 20px 16px; }
   .adm-kpis { grid-template-columns: repeat(2, 1fr); }
   .adm-fin-grid { grid-template-columns: 1fr; }
+  .adm-mkt { padding: 20px 16px; }
+  .toast-area { bottom: 12px; right: 12px; }
 }

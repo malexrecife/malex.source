@@ -83,7 +83,7 @@ function Field({ label, children, error, hint }) {
 }
 
 /* ============================ WIZARD ============================ */
-export function Reservar({ open, initialSize, onClose }) {
+export function Reservar({ open, initialSize, initialUnitId, onClose }) {
   const [step, setStep] = useState(0);
   const [touched, setTouched] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -108,14 +108,21 @@ export function Reservar({ open, initialSize, onClose }) {
     if (open) {
       setStep(0); setTouched(false); setConfirmation(null); setCopied(false);
       setSubmitting(false); setSubmitError(null);
-      setS((prev) => ({ ...prev, size: initialSize || prev.size }));
+      setS((prev) => {
+        const patch = { size: initialSize || prev.size };
+        if (initialUnitId) {
+          const found = (dbUnits || UNITS).find((u) => u.id === initialUnitId);
+          if (found) { patch.unit = found; }
+        }
+        return { ...prev, ...patch };
+      });
       document.body.style.overflow = "hidden";
       setTimeout(() => panelRef.current && panelRef.current.focus(), 30);
     } else {
       document.body.style.overflow = "";
     }
     return () => { document.body.style.overflow = ""; };
-  }, [open, initialSize]);
+  }, [open, initialSize, initialUnitId]);
 
   // Esc to close
   useEffect(() => {
@@ -125,17 +132,20 @@ export function Reservar({ open, initialSize, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const [loadingUnits, setLoadingUnits] = useState(false);
   useEffect(() => {
     if (!open || !supabaseEnabled) return;
     let alive = true;
+    setLoadingUnits(true);
     Promise.all([listUnits(), listLockers()]).then(([u, l]) => {
       if (!alive) return;
+      setLoadingUnits(false);
       if (u.data && u.data.length) {
         const freeBy = {};
         (l.data || []).forEach((x) => { if (x.status === "free") freeBy[x.unit_id] = (freeBy[x.unit_id] || 0) + 1; });
         setDbUnits(u.data.map((x) => ({ id: x.id, code: x.code, name: x.name, city: x.city + " \u00b7 " + x.state, free: freeBy[x.id] || 0, type: x.kind || "other" })));
       } else setDbUnits([]);
-    });
+    }).catch(() => { if (alive) setLoadingUnits(false); });
     return () => { alive = false; };
   }, [open]);
   const unitsList = dbUnits && dbUnits.length ? dbUnits : UNITS;
@@ -208,7 +218,7 @@ export function Reservar({ open, initialSize, onClose }) {
       {/* body */}
       <div className="wiz-body" ref={panelRef} tabIndex={-1}>
         <div className="wiz-inner" key={step}>
-          {step === 0 && <StepUnit s={s} set={set} units={unitsList} />}
+          {step === 0 && <StepUnit s={s} set={set} units={unitsList} loading={loadingUnits && supabaseEnabled} />}
           {step === 1 && <StepSize s={s} set={set} />}
           {step === 2 && <StepPeriod s={s} set={set} price={price} touched={touched} />}
           {step === 3 && <StepData s={s} set={set} touched={touched} />}
@@ -248,24 +258,40 @@ export function Reservar({ open, initialSize, onClose }) {
 }
 
 /* ---------------- STEP 1 · UNIDADE ---------------- */
-function StepUnit({ s, set, units = UNITS }) {
+function UnitSkeleton() {
+  return (
+    <div className="unit-grid">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="unit-card unit-card-skel">
+          <span className="skel-line skel-w-20" />
+          <span className="skel-line skel-w-60" style={{ marginTop: 8 }} />
+          <span className="skel-line skel-w-40" style={{ marginTop: 6 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StepUnit({ s, set, units = UNITS, loading = false }) {
   return (
     <div>
       <StepHead n="Passo 1" t="Onde você quer largar a mala?" d="Escolhe a unidade Malex mais perto de você. Todas abrem 24h." />
-      <div className="unit-grid">
-        {units.map((u) => {
-          const on = s.unit && s.unit.id === u.id;
-          return (
-            <button key={u.id} className={`unit-card${on ? " sel" : ""}`} onClick={() => set({ unit: u })} aria-pressed={on}>
-              <span className="unit-code">{u.code}</span>
-              <span className="unit-radio">{on && <Icon name="check" size={14} color="var(--cream-500)" />}</span>
-              <span className="unit-name">{u.name}</span>
-              <span className="unit-city">{u.city}</span>
-              <span className="unit-free"><Icon name="locker" size={15} color="var(--navy-300)" /> {u.free} lockers livres · 24h</span>
-            </button>
-          );
-        })}
-      </div>
+      {loading ? <UnitSkeleton /> : (
+        <div className="unit-grid">
+          {units.map((u) => {
+            const on = s.unit && s.unit.id === u.id;
+            return (
+              <button key={u.id} className={`unit-card${on ? " sel" : ""}`} onClick={() => set({ unit: u })} aria-pressed={on}>
+                <span className="unit-code">{u.code}</span>
+                <span className="unit-radio">{on && <Icon name="check" size={14} color="var(--cream-500)" />}</span>
+                <span className="unit-name">{u.name}</span>
+                <span className="unit-city">{u.city}</span>
+                <span className="unit-free"><Icon name="locker" size={15} color="var(--navy-300)" /> {u.free} lockers livres · 24h</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

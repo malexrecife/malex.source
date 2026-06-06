@@ -86,16 +86,21 @@ export async function occupyLocker(locker, customer) {
   if (e1) return { error: e1 };
   const { error: e2 } = await supabase.from("lockers")
     .update({ status: "occupied", current_reservation_id: res.id }).eq("id", locker.id);
+  if (!e2) logAudit({ action: "occupy", entity: "locker", entityId: locker.id, unitCode: customer.unitCode, details: { locker: locker.label, customer: customer.name } });
   return { data: res, error: e2 };
 }
-export async function freeLocker(locker) {
+export async function freeLocker(locker, unitCode) {
   if (locker.current_reservation_id) {
     await supabase.from("reservations").update({ status: "done", closed_at: new Date().toISOString() }).eq("id", locker.current_reservation_id);
   }
-  return supabase.from("lockers").update({ status: "free", current_reservation_id: null }).eq("id", locker.id);
+  const result = await supabase.from("lockers").update({ status: "free", current_reservation_id: null }).eq("id", locker.id);
+  if (!result.error) logAudit({ action: "free", entity: "locker", entityId: locker.id, unitCode, details: { locker: locker.label } });
+  return result;
 }
-export async function setLockerStatus(locker, status) {
-  return supabase.from("lockers").update({ status }).eq("id", locker.id);
+export async function setLockerStatus(locker, status, unitCode) {
+  const result = await supabase.from("lockers").update({ status }).eq("id", locker.id);
+  if (!result.error) logAudit({ action: `status_${status}`, entity: "locker", entityId: locker.id, unitCode, details: { locker: locker.label } });
+  return result;
 }
 
 // Check-in: cliente entregou a mala. Vincula um agendamento a um locker livre.
@@ -106,10 +111,13 @@ export async function checkInReservation(reservation, locker, checkout) {
   if (e1) return { error: e1 };
   const { error: e2 } = await supabase.from("lockers")
     .update({ status: "occupied", current_reservation_id: reservation.id }).eq("id", locker.id);
+  if (!e2) logAudit({ action: "checkin", entity: "reservation", entityId: reservation.id, unitCode: reservation.unit_code, details: { locker: locker.label, customer: reservation.customer_name } });
   return { error: e2 };
 }
-export async function cancelReservation(id) {
-  return supabase.from("reservations").update({ status: "cancelled" }).eq("id", id);
+export async function cancelReservation(id, unitCode) {
+  const result = await supabase.from("reservations").update({ status: "cancelled" }).eq("id", id);
+  if (!result.error) logAudit({ action: "cancel", entity: "reservation", entityId: id, unitCode });
+  return result;
 }
 export async function setPaymentStatus(id, status) {
   return supabase.from("reservations")
@@ -127,4 +135,28 @@ export async function listReservations(filter = {}) {
 export async function getReservation(id) {
   if (!id) return { data: null, error: null };
   return supabase.from("reservations").select("*").eq("id", id).single();
+}
+
+/* ---------------- AUDITORIA ---------------- */
+async function currentEmail() {
+  if (!supabaseEnabled) return null;
+  const { data } = await supabase.auth.getUser();
+  return data?.user?.email || null;
+}
+export async function logAudit({ action, entity, entityId, unitCode, details }) {
+  if (!supabaseEnabled) return;
+  const userEmail = await currentEmail();
+  await supabase.from("audit_logs").insert({
+    action, entity, entity_id: entityId,
+    unit_code: unitCode || null,
+    user_email: userEmail,
+    details: details ? details : null,
+  });
+}
+export async function listAuditLogs(unitCode, limit = 100) {
+  if (!supabaseEnabled) return { data: [], error: null };
+  let q = supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (unitCode) q = q.eq("unit_code", unitCode);
+  const { data, error } = await q;
+  return { data: data || [], error };
 }

@@ -1,5 +1,5 @@
 // Malex — Painel administrativo (login único + gestão de unidades/lockers/financeiro).
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { MalexLogo, Icon, Btn } from "../components/Primitives.jsx";
 import {
   supabaseEnabled, getSession, onAuth, signIn, signOut,
@@ -7,12 +7,172 @@ import {
   listLockers, addLockersBulk, addLocker, deleteLocker,
   occupyLocker, freeLocker, setLockerStatus,
   listReservations, checkInReservation, cancelReservation, setPaymentStatus,
+  listAuditLogs,
 } from "../lib/admin.js";
+import { supabase } from "../lib/supabase.js";
 
+/* ============================ CONSTANTS ============================ */
 const UF = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const SIZE_NAME = { P: "Pequeno", M: "Médio", G: "Grande" };
 const MONTHS = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
 
+/* ============================ HELPERS ============================ */
+function isOverstay(lk, res) {
+  return lk.status === "occupied" && res?.check_out && new Date(res.check_out) < new Date();
+}
+
+function exportCSV(rows, cols, filename) {
+  const header = cols.map((c) => `"${c.label}"`).join(",");
+  const body = rows.map((r) =>
+    cols.map((c) => {
+      const v = r[c.key] ?? "";
+      return `"${String(v).replace(/"/g, '""')}"`;
+    }).join(",")
+  );
+  const csv = [header, ...body].join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function fmtDateTime(v) {
+  if (!v) return "—";
+  const str = String(v);
+  const hasTime = str.includes("T") || str.includes(":");
+  const d = new Date(hasTime ? str : str + "T12:00");
+  if (isNaN(d)) return str;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  if (!hasTime) return `${dd}/${mm}`;
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm} ${hh}:${mi}`;
+}
+
+function Fld({ label, children }) {
+  return <label className="wf-field"><span className="wf-field-lbl">{label}</span>{children}</label>;
+}
+function Splash({ children }) {
+  return <div className="adm-splash on-navy"><MalexLogo height={26} /><span>{children}</span></div>;
+}
+function ConfigMissing() {
+  return (
+    <div className="adm-splash on-navy" style={{ flexDirection: "column", gap: 12, textAlign: "center", padding: 24 }}>
+      <MalexLogo height={26} />
+      <p className="t-body" style={{ color: "var(--navy-200)", maxWidth: 420 }}>Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY e crie a conta do gestor.</p>
+    </div>
+  );
+}
+
+/* ============================ TOAST SYSTEM ============================ */
+let _toastId = 0;
+function useToasts() {
+  const [toasts, setToasts] = useState([]);
+  const show = useCallback((msg, type = "info") => {
+    const id = ++_toastId;
+    setToasts((prev) => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }, []);
+  const dismiss = useCallback((id) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
+  return { toasts, show, dismiss };
+}
+
+function ToastArea({ toasts, dismiss }) {
+  if (!toasts.length) return null;
+  return (
+    <div className="adm-toast-area">
+      {toasts.map((t) => (
+        <div key={t.id} className={`adm-toast adm-toast-${t.type}`} onClick={() => dismiss(t.id)}>
+          <span>{t.msg}</span>
+          <button className="adm-toast-close" onClick={(e) => { e.stopPropagation(); dismiss(t.id); }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================ CONFIRM SYSTEM ============================ */
+function useConfirm() {
+  const [state, setState] = useState(null);
+  const resolveRef = useRef(null);
+
+  const confirm = useCallback((msg, title = "Confirmar") => {
+    return new Promise((resolve) => {
+      resolveRef.current = resolve;
+      setState({ msg, title });
+    });
+  }, []);
+
+  const handle = (result) => {
+    setState(null);
+    resolveRef.current?.(result);
+    resolveRef.current = null;
+  };
+
+  const ConfirmUI = state ? (
+    <div className="adm-modal-scrim" onClick={() => handle(false)}>
+      <div className="adm-modal on-navy" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+        <div className="adm-modal-head">
+          <h3 className="t-h4" style={{ color: "var(--cream-500)", margin: 0 }}>{state.title}</h3>
+        </div>
+        <div style={{ padding: "16px 20px 20px" }}>
+          <p className="t-body" style={{ color: "var(--navy-200)", margin: "0 0 20px" }}>{state.msg}</p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="secondary" onClick={() => handle(false)}>Cancelar</Btn>
+            <Btn variant="primary" onClick={() => handle(true)}>Confirmar</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return { confirm, ConfirmUI };
+}
+
+/* ============================ SKELETON ============================ */
+function SkeletonList({ rows = 4 }) {
+  return (
+    <div className="adm-skeleton-list">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton adm-skeleton-row" style={{ animationDelay: `${i * 0.1}s` }} />
+      ))}
+    </div>
+  );
+}
+
+/* ============================ PAGINATION ============================ */
+function usePagination(items, perPage = 25) {
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [items]);
+  const total = Math.max(1, Math.ceil(items.length / perPage));
+  const slice = items.slice((page - 1) * perPage, page * perPage);
+  return { page, total, setPage, slice, count: items.length };
+}
+
+function Paginator({ page, total, setPage, count, perPage = 25 }) {
+  if (total <= 1) return null;
+  const from = (page - 1) * perPage + 1;
+  const to = Math.min(page * perPage, count);
+  return (
+    <div className="adm-paginator">
+      <span className="adm-pag-info">{from}–{to} de {count}</span>
+      <button className="adm-pag-btn" disabled={page === 1} onClick={() => setPage(1)}>«</button>
+      <button className="adm-pag-btn" disabled={page === 1} onClick={() => setPage(page - 1)}>‹</button>
+      {Array.from({ length: Math.min(5, total) }, (_, i) => {
+        const p = Math.max(1, Math.min(total - 4, page - 2)) + i;
+        return (
+          <button key={p} className={`adm-pag-btn${p === page ? " on" : ""}`} onClick={() => setPage(p)}>{p}</button>
+        );
+      })}
+      <button className="adm-pag-btn" disabled={page === total} onClick={() => setPage(page + 1)}>›</button>
+      <button className="adm-pag-btn" disabled={page === total} onClick={() => setPage(total)}>»</button>
+    </div>
+  );
+}
+
+/* ============================ MAIN APP ============================ */
 export default function AdminApp() {
   const [session, setSession] = useState(undefined);
   useEffect(() => {
@@ -32,6 +192,12 @@ function Login() {
   const [pass, setPass] = useState("");
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotMsg, setForgotMsg] = useState(null);
+  const [forgotErr, setForgotErr] = useState(null);
+  const [forgotBusy, setForgotBusy] = useState(false);
+
   const submit = async (e) => {
     e.preventDefault();
     setErr(null); setBusy(true);
@@ -39,20 +205,56 @@ function Login() {
     setBusy(false);
     if (error) setErr(error.message || "Não foi possível entrar.");
   };
+
+  const sendReset = async (e) => {
+    e.preventDefault();
+    setForgotErr(null); setForgotMsg(null); setForgotBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+        redirectTo: window.location.origin + "/admin",
+      });
+      if (error) setForgotErr(error.message || "Erro ao enviar link.");
+      else setForgotMsg("Link enviado! Verifique seu e-mail.");
+    } catch (ex) {
+      setForgotErr("Erro ao enviar link.");
+    }
+    setForgotBusy(false);
+  };
+
   return (
     <div className="adm-login on-navy">
-      <form className="adm-login-card" onSubmit={submit}>
+      <form className="adm-login-card" onSubmit={forgotMode ? sendReset : submit}>
         <MalexLogo height={28} />
-        <h1 className="t-h3" style={{ color: "var(--cream-500)", margin: "18px 0 4px" }}>Painel do gestor</h1>
-        <p className="t-body-sm" style={{ color: "var(--navy-200)", margin: "0 0 22px" }}>Acesso restrito. Entre com seu e-mail e senha.</p>
-        <label className="wf-field"><span className="wf-field-lbl">E-mail</span>
-          <input className="field" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="gestor@malexpernambuco.com.br" />
-        </label>
-        <label className="wf-field" style={{ marginTop: 14 }}><span className="wf-field-lbl">Senha</span>
-          <input className="field" type="password" autoComplete="current-password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" />
-        </label>
-        {err && <div className="adm-err" style={{ marginTop: 14 }}>{err}</div>}
-        <Btn type="submit" variant="primary" cta className="btn-block" style={{ marginTop: 20 }} disabled={busy}>{busy ? "Entrando…" : "Entrar"}</Btn>
+        <h1 className="t-h3" style={{ color: "var(--cream-500)", margin: "18px 0 4px" }}>
+          {forgotMode ? "Recuperar senha" : "Painel do gestor"}
+        </h1>
+        <p className="t-body-sm" style={{ color: "var(--navy-200)", margin: "0 0 22px" }}>
+          {forgotMode ? "Informe seu e-mail para receber o link." : "Acesso restrito. Entre com seu e-mail e senha."}
+        </p>
+
+        {forgotMode ? (
+          <>
+            <label className="wf-field"><span className="wf-field-lbl">E-mail</span>
+              <input className="field" type="email" autoComplete="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="gestor@malexpernambuco.com.br" />
+            </label>
+            {forgotErr && <div className="adm-err" style={{ marginTop: 14 }}>{forgotErr}</div>}
+            {forgotMsg && <div style={{ marginTop: 14, color: "var(--green-400)", fontSize: 14 }}>{forgotMsg}</div>}
+            <Btn type="submit" variant="primary" cta className="btn-block" style={{ marginTop: 20 }} disabled={forgotBusy}>{forgotBusy ? "Enviando…" : "Enviar link"}</Btn>
+            <button type="button" className="adm-link" style={{ marginTop: 12, fontSize: 13 }} onClick={() => setForgotMode(false)}>← Voltar ao login</button>
+          </>
+        ) : (
+          <>
+            <label className="wf-field"><span className="wf-field-lbl">E-mail</span>
+              <input className="field" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="gestor@malexpernambuco.com.br" />
+            </label>
+            <label className="wf-field" style={{ marginTop: 14 }}><span className="wf-field-lbl">Senha</span>
+              <input className="field" type="password" autoComplete="current-password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" />
+            </label>
+            <button type="button" className="adm-link" style={{ fontSize: 12, marginTop: 8, textAlign: "right", display: "block" }} onClick={() => setForgotMode(true)}>Esqueceu a senha?</button>
+            {err && <div className="adm-err" style={{ marginTop: 14 }}>{err}</div>}
+            <Btn type="submit" variant="primary" cta className="btn-block" style={{ marginTop: 20 }} disabled={busy}>{busy ? "Entrando…" : "Entrar"}</Btn>
+          </>
+        )}
       </form>
     </div>
   );
@@ -67,6 +269,11 @@ function Dashboard({ session }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [view, setView] = useState("units");
+  const { toasts, show: showToast, dismiss } = useToasts();
+  const { confirm, ConfirmUI } = useConfirm();
+
+  const role = session.user?.user_metadata?.role || "admin";
+  const unitCodeFilter = session.user?.user_metadata?.unit_code || null;
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -75,6 +282,14 @@ function Dashboard({ session }) {
     setLoading(false);
   }, []);
   useEffect(() => { reload(); }, [reload]);
+
+  // Auto-select unit for unit_manager role
+  useEffect(() => {
+    if (role === "unit_manager" && unitCodeFilter && units.length && !selUnit) {
+      const found = units.find((u) => u.code === unitCodeFilter);
+      if (found) setSelUnit(found);
+    }
+  }, [role, unitCodeFilter, units, selUnit]);
 
   const resById = useMemo(() => Object.fromEntries(reservations.map((r) => [r.id, r])), [reservations]);
   const tree = useMemo(() => {
@@ -85,15 +300,25 @@ function Dashboard({ session }) {
   const unitLockers = useMemo(() => (selUnit ? lockers.filter((l) => l.unit_id === selUnit.id) : []), [lockers, selUnit]);
 
   const close = () => setModal(null);
-  const afterChange = async () => { close(); await reload(); };
+  const afterChange = async (msg) => { close(); if (msg) showToast(msg, "success"); await reload(); };
 
   return (
     <div className="adm on-navy">
       <header className="adm-top">
-        <div className="adm-top-l"><MalexLogo height={22} /><span className="adm-badge">Gestor</span></div>
+        <div className="adm-top-l">
+          <MalexLogo height={22} />
+          <span className="adm-badge">Gestor</span>
+          {role === "unit_manager" && unitCodeFilter && (
+            <span className="adm-badge" style={{ background: "var(--royal-600)", marginLeft: 4 }}>Sua unidade: {unitCodeFilter}</span>
+          )}
+        </div>
         <nav className="adm-nav">
           <button className={view === "units" ? "on" : ""} onClick={() => setView("units")}>Unidades</button>
-          <button className={view === "finance" ? "on" : ""} onClick={() => setView("finance")}>Financeiro</button>
+          {role !== "unit_manager" && (
+            <button className={view === "finance" ? "on" : ""} onClick={() => setView("finance")}>Financeiro</button>
+          )}
+          <button className={view === "marketing" ? "on" : ""} onClick={() => setView("marketing")}>Marketing</button>
+          <button className={view === "table" ? "on" : ""} onClick={() => setView("table")}>Reservas</button>
         </nav>
         <div className="adm-top-r">
           <span className="t-body-sm" style={{ color: "var(--navy-200)" }}>{session.user?.email}</span>
@@ -102,60 +327,89 @@ function Dashboard({ session }) {
       </header>
 
       {view === "units" && (
-      <div className="adm-body">
-        <aside className="adm-side">
-          <div className="adm-side-head">
-            <span className="t-overline" style={{ color: "var(--navy-300)" }}>Unidades do Brasil</span>
-            <button className="adm-add-sm" title="Adicionar unidade" onClick={() => setModal({ type: "unit" })}><Icon name="plus" size={16} /></button>
-          </div>
-          {loading ? <div className="adm-muted">Carregando…</div> :
-            Object.keys(tree).length === 0 ? <div className="adm-muted">Nenhuma unidade. Clique em + pra adicionar.</div> :
-            Object.keys(tree).sort().map((st) => (
-              <StateGroup key={st} state={st} cities={tree[st]} lockers={lockers} selUnit={selUnit} onSelect={setSelUnit} />
-            ))}
-        </aside>
-
-        <main className="adm-main">
-          {!selUnit ? (
-            <div className="adm-empty">
-              <Icon name="map" size={40} color="var(--navy-400)" />
-              <p className="t-body" style={{ color: "var(--navy-200)" }}>Selecione uma unidade na lista pra ver o painel, lockers e agendamentos.</p>
+        <div className="adm-body">
+          <aside className="adm-side">
+            <div className="adm-side-head">
+              <span className="t-overline" style={{ color: "var(--navy-300)" }}>Unidades do Brasil</span>
+              {role !== "unit_manager" && (
+                <button className="adm-add-sm" title="Adicionar unidade" onClick={() => setModal({ type: "unit" })}><Icon name="plus" size={16} /></button>
+              )}
             </div>
-          ) : (
-            <UnitView unit={selUnit} lockers={unitLockers} reservations={reservations} resById={resById}
-              onAddLockers={() => setModal({ type: "lockers", unit: selUnit })}
-              onOccupy={(lk) => setModal({ type: "occupy", unit: selUnit, locker: lk, lockers: unitLockers, reservations })}
-              onOccupyTop={() => setModal({ type: "occupy", unit: selUnit, locker: null, lockers: unitLockers, reservations })}
-              onPickupTop={() => setModal({ type: "pickup", unit: selUnit, lockers: unitLockers })}
-              onFree={async (lk) => { await freeLocker(lk); await reload(); }}
-              onMaint={async (lk, st) => { await setLockerStatus(lk, st); await reload(); }}
-              onCheckIn={(b) => setModal({ type: "checkin", unit: selUnit, reservation: b, lockers: unitLockers })}
-              onCancelBooking={async (b) => { if (confirm(`Cancelar o agendamento de ${b.customer_name}?`)) { await cancelReservation(b.id); await reload(); } }}
-              onDelLocker={async (lk) => { if (confirm(`Excluir locker ${lk.label}?`)) { await deleteLocker(lk.id); await reload(); } }}
-              onDelUnit={async () => { if (confirm(`Excluir a unidade ${selUnit.name} e todos os seus lockers?`)) { await deleteUnit(selUnit.id); setSelUnit(null); await reload(); } }}
-            />
-          )}
-        </main>
-      </div>
-      )}
+            {loading ? <SkeletonList rows={4} /> :
+              Object.keys(tree).length === 0 ? <div className="adm-muted">Nenhuma unidade. Clique em + pra adicionar.</div> :
+              Object.keys(tree).sort().map((st) => (
+                <StateGroup key={st} state={st} cities={tree[st]} lockers={lockers} resById={resById} selUnit={selUnit} onSelect={setSelUnit} />
+              ))}
+          </aside>
 
-      {view === "finance" && (
-        <div className="adm-finance">
-          <FinanceView reservations={reservations} units={units}
-            onSetPaid={async (id, st) => { await setPaymentStatus(id, st); await reload(); }} />
+          <main className="adm-main">
+            {!selUnit ? (
+              <div className="adm-empty">
+                <Icon name="map" size={40} color="var(--navy-400)" />
+                <p className="t-body" style={{ color: "var(--navy-200)" }}>Selecione uma unidade na lista pra ver o painel, lockers e agendamentos.</p>
+              </div>
+            ) : (
+              <UnitView
+                unit={selUnit} lockers={unitLockers} reservations={reservations} resById={resById}
+                role={role}
+                onAddLockers={() => setModal({ type: "lockers", unit: selUnit })}
+                onOccupy={(lk) => setModal({ type: "occupy", unit: selUnit, locker: lk, lockers: unitLockers, reservations })}
+                onOccupyTop={() => setModal({ type: "occupy", unit: selUnit, locker: null, lockers: unitLockers, reservations })}
+                onPickupTop={() => setModal({ type: "pickup", unit: selUnit, lockers: unitLockers })}
+                onFree={async (lk) => { await freeLocker(lk, selUnit.code); showToast(`Locker ${lk.label} liberado.`, "success"); await reload(); }}
+                onMaint={async (lk, st) => { await setLockerStatus(lk, st, selUnit.code); await reload(); }}
+                onCheckIn={(b) => setModal({ type: "checkin", unit: selUnit, reservation: b, lockers: unitLockers })}
+                onCancelBooking={async (b) => {
+                  const ok = await confirm(`Cancelar o agendamento de ${b.customer_name}?`, "Cancelar agendamento");
+                  if (ok) { await cancelReservation(b.id, selUnit.code); showToast("Agendamento cancelado.", "info"); await reload(); }
+                }}
+                onDelLocker={async (lk) => {
+                  const ok = await confirm(`Excluir locker ${lk.label}?`, "Excluir locker");
+                  if (ok) { await deleteLocker(lk.id); showToast(`Locker ${lk.label} excluído.`, "info"); await reload(); }
+                }}
+                onDelUnit={async () => {
+                  const ok = await confirm(`Excluir a unidade ${selUnit.name} e todos os seus lockers?`, "Excluir unidade");
+                  if (ok) { await deleteUnit(selUnit.id); setSelUnit(null); showToast("Unidade excluída.", "info"); await reload(); }
+                }}
+              />
+            )}
+          </main>
         </div>
       )}
 
-      {modal?.type === "unit" && <UnitModal onClose={close} onDone={afterChange} />}
-      {modal?.type === "lockers" && <LockersModal unit={modal.unit} onClose={close} onDone={afterChange} />}
-      {modal?.type === "occupy" && <OccupyModal unit={modal.unit} locker={modal.locker} lockers={modal.lockers} reservations={modal.reservations} onClose={close} onDone={afterChange} />}
-      {modal?.type === "pickup" && <PickupModal unit={modal.unit} lockers={modal.lockers} resById={resById} onClose={close} onDone={afterChange} />}
-      {modal?.type === "checkin" && <CheckInModal unit={modal.unit} reservation={modal.reservation} lockers={modal.lockers} onClose={close} onDone={afterChange} />}
+      {view === "finance" && role !== "unit_manager" && (
+        <div className="adm-finance">
+          <FinanceView reservations={reservations} units={units}
+            onSetPaid={async (id, st) => { await setPaymentStatus(id, st); showToast(st === "paid" ? "Marcado como pago." : "Marcado como pendente.", "success"); await reload(); }} />
+        </div>
+      )}
+
+      {view === "marketing" && (
+        <div className="adm-finance">
+          <MarketingView reservations={reservations} units={units} />
+        </div>
+      )}
+
+      {view === "table" && (
+        <div className="adm-finance">
+          <TableView reservations={reservations} lockers={lockers} />
+        </div>
+      )}
+
+      {modal?.type === "unit" && <UnitModal onClose={close} onDone={() => afterChange("Unidade criada com sucesso!")} />}
+      {modal?.type === "lockers" && <LockersModal unit={modal.unit} onClose={close} onDone={() => afterChange("Lockers adicionados!")} />}
+      {modal?.type === "occupy" && <OccupyModal unit={modal.unit} locker={modal.locker} lockers={modal.lockers} reservations={modal.reservations} onClose={close} onDone={() => afterChange("Locker ocupado com sucesso!")} />}
+      {modal?.type === "pickup" && <PickupModal unit={modal.unit} lockers={modal.lockers} resById={resById} onClose={close} onDone={() => afterChange("Bagagem retirada. Locker liberado!")} />}
+      {modal?.type === "checkin" && <CheckInModal unit={modal.unit} reservation={modal.reservation} lockers={modal.lockers} onClose={close} onDone={() => afterChange("Check-in realizado!")} />}
+
+      {ConfirmUI}
+      <ToastArea toasts={toasts} dismiss={dismiss} />
     </div>
   );
 }
 
-function StateGroup({ state, cities, lockers, selUnit, onSelect }) {
+/* ============================ STATE GROUP ============================ */
+function StateGroup({ state, cities, lockers, resById, selUnit, onSelect }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="adm-state">
@@ -169,11 +423,13 @@ function StateGroup({ state, cities, lockers, selUnit, onSelect }) {
           {cities[city].map((u) => {
             const lk = lockers.filter((l) => l.unit_id === u.id);
             const occ = lk.filter((l) => l.status === "occupied").length;
+            const overstayCount = lk.filter((l) => isOverstay(l, resById[l.current_reservation_id])).length;
             return (
               <button key={u.id} className={`adm-unit${selUnit?.id === u.id ? " on" : ""}`} onClick={() => onSelect(u)}>
                 <span className="adm-unit-code">{u.code}</span>
                 <span className="adm-unit-name">{u.name}</span>
                 <span className="adm-unit-occ">{lk.length ? `${occ}/${lk.length}` : "—"}</span>
+                {overstayCount > 0 && <span className="adm-overstay-badge">{overstayCount}</span>}
               </button>
             );
           })}
@@ -183,14 +439,15 @@ function StateGroup({ state, cities, lockers, selUnit, onSelect }) {
   );
 }
 
-/* ---------- detalhe da unidade ---------- */
-function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy, onFree, onMaint, onDelLocker, onDelUnit, onCheckIn, onCancelBooking, onOccupyTop, onPickupTop }) {
+/* ============================ UNIT VIEW ============================ */
+function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy, onFree, onMaint, onDelLocker, onDelUnit, onCheckIn, onCancelBooking, onOccupyTop, onPickupTop, role }) {
   const [tab, setTab] = useState("metrics");
   const occ = lockers.filter((l) => l.status === "occupied").length;
   const free = lockers.filter((l) => l.status === "free").length;
   const bySize = (sz) => lockers.filter((l) => l.size === sz);
   const unitRes = reservations.filter((r) => r.unit_code === unit.code || r.unit_ref === unit.id);
   const bookings = unitRes.filter((r) => r.status === "reserved");
+  const overstayCount = lockers.filter((l) => isOverstay(l, resById[l.current_reservation_id])).length;
 
   return (
     <div>
@@ -203,7 +460,7 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
         <div className="adm-unit-actions">
           <Btn variant="primary" onClick={onOccupyTop}>Ocupar locker</Btn>
           <Btn variant="secondary" onClick={onPickupTop}>Retirar bagagem</Btn>
-          <UnitMenu onAddLockers={onAddLockers} onDelUnit={onDelUnit} />
+          <UnitMenu onAddLockers={onAddLockers} onDelUnit={role !== "unit_manager" ? onDelUnit : null} />
         </div>
       </div>
 
@@ -212,6 +469,7 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
         <Stat n={occ} l="ocupados" tone="orange" />
         <Stat n={free} l="livres" tone="success" />
         <Stat n={bookings.length} l="agendamentos" tone="muted" />
+        <Stat n={overstayCount} l="Atrasados" tone="danger" />
       </div>
 
       <div className="adm-tabs">
@@ -219,13 +477,14 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
         <button className={`adm-tab${tab === "lockers" ? " on" : ""}`} onClick={() => setTab("lockers")}>Ocupação</button>
         <button className={`adm-tab${tab === "bookings" ? " on" : ""}`} onClick={() => setTab("bookings")}>Agendamentos{bookings.length ? ` · ${bookings.length}` : ""}</button>
         <button className={`adm-tab${tab === "table" ? " on" : ""}`} onClick={() => setTab("table")}>Visão geral</button>
+        <button className={`adm-tab${tab === "audit" ? " on" : ""}`} onClick={() => setTab("audit")}>Histórico</button>
       </div>
 
       {tab === "metrics" && <MetricsView reservations={unitRes} />}
 
       {tab === "lockers" && (
         lockers.length === 0 ? (
-          <div className="adm-empty sm"><p className="t-body" style={{ color: "var(--navy-200)" }}>Sem lockers nesta unidade. Clique em “Adicionar lockers” no menu ⋯.</p></div>
+          <div className="adm-empty sm"><p className="t-body" style={{ color: "var(--navy-200)" }}>Sem lockers nesta unidade. Clique em "Adicionar lockers" no menu ⋯.</p></div>
         ) : (
           ["P", "G"].map((sz) => bySize(sz).length > 0 && (
             <div className="adm-size-row" key={sz}>
@@ -244,10 +503,13 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
       {tab === "bookings" && <BookingsList unit={unit} bookings={bookings} lockers={lockers} onCheckIn={onCheckIn} onCancel={onCancelBooking} />}
 
       {tab === "table" && <TableView reservations={unitRes} lockers={lockers} />}
+
+      {tab === "audit" && <AuditView unitCode={unit.code} />}
     </div>
   );
 }
 
+/* ============================ BOOKINGS LIST ============================ */
 function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
   if (!bookings.length) return (
     <div className="adm-empty sm"><Icon name="calendar-check" size={32} color="var(--navy-400)" /><p className="t-body" style={{ color: "var(--navy-200)" }}>Nenhum agendamento pendente nesta unidade.</p></div>
@@ -256,6 +518,11 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
     <div className="adm-bookings">
       {bookings.map((b) => {
         const freeForSize = lockers.filter((l) => l.status === "free" && l.size === b.size).length;
+        const pixPending = (b.payment_status === "pending" || b.payment_status == null) && b.pay_method === "pix";
+        const canCheckIn = freeForSize > 0 && !pixPending;
+        let checkInTitle = "";
+        if (!freeForSize) checkInTitle = `Sem locker livre desse tamanho`;
+        else if (pixPending) checkInTitle = "Aguarde confirmação do Pix antes do check-in";
         return (
           <div className="adm-booking" key={b.id}>
             <div className="adm-booking-main">
@@ -266,10 +533,18 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
                 <span><Icon name="clock" size={13} color="var(--navy-300)" /> Retirada {fmtDateTime(b.check_out)}</span>
               </div>
               <div className="adm-booking-code mono">{b.locker_code}</div>
+              {pixPending && (
+                <div style={{ marginTop: 6, fontSize: 12, color: "var(--orange-400)" }}>⚠ Aguardando confirmação do Pix</div>
+              )}
             </div>
             <div className="adm-booking-actions">
-              <button className="adm-mini primary" disabled={!freeForSize} title={freeForSize ? "" : "Sem locker livre desse tamanho"} onClick={() => onCheckIn(b)}>
-                {freeForSize ? "Cliente entregou a mala" : `Sem vaga ${b.size}`}
+              <button
+                className="adm-mini primary"
+                disabled={!canCheckIn}
+                title={checkInTitle}
+                onClick={() => onCheckIn(b)}
+              >
+                {!freeForSize ? `Sem vaga ${b.size}` : pixPending ? "Aguardando Pix" : "Cliente entregou a mala"}
               </button>
               <button className="adm-mini ghost" onClick={() => onCancel(b)}>Cancelar</button>
             </div>
@@ -280,19 +555,26 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
   );
 }
 
-/* ---------- painel de métricas ---------- */
+/* ============================ METRICS VIEW ============================ */
 function MetricsView({ reservations }) {
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startWeek = (() => { const d = new Date(startToday); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return d; })();
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
+  // Previous month bounds
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
   const resDate = (r) => r.created_at;
   const doneDate = (r) => r.closed_at || r.check_out || r.created_at;
   const notCancelled = reservations.filter((r) => r.status !== "cancelled");
   const done = reservations.filter((r) => r.status === "done");
   const countSince = (list, gd, start) => list.reduce((a, r) => (new Date(gd(r)) >= start ? a + 1 : a), 0);
   const sumSince = (list, gd, start, val) => list.reduce((a, r) => (new Date(gd(r)) >= start ? a + (val(r) || 0) : a), 0);
+  const countBetween = (list, gd, start, end) => list.reduce((a, r) => { const d = new Date(gd(r)); return d >= start && d <= end ? a + 1 : a; }, 0);
+  const sumBetween = (list, gd, start, end, val) => list.reduce((a, r) => { const d = new Date(gd(r)); return d >= start && d <= end ? a + (val(r) || 0) : a; }, 0);
   const monthSeries = (list, gd, val) => {
     const arr = Array.from({ length: daysInMonth }, (_, i) => ({ k: i + 1, v: 0 }));
     for (const r of list) { const d = new Date(gd(r)); if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) arr[d.getDate() - 1].v += val ? val(r) : 1; }
@@ -300,44 +582,97 @@ function MetricsView({ reservations }) {
   };
   const price = (r) => r.price_total || 0;
   const monthLbl = `${MONTHS[now.getMonth()]}/${String(now.getFullYear()).slice(2)}`;
+
+  // Day in month so far for fair comparison
+  const dayOfMonth = now.getDate();
+  const prevSamePeriodEnd = new Date(now.getFullYear(), now.getMonth() - 1, dayOfMonth, 23, 59, 59);
+
+  const pctChange = (curr, prev) => {
+    if (prev === 0 && curr === 0) return null;
+    if (prev === 0) return null;
+    const p = Math.round(((curr - prev) / prev) * 100);
+    return p;
+  };
+
   const blocks = [
-    { title: "Reservas", color: "var(--orange-500)", d: countSince(notCancelled, resDate, startToday), w: countSince(notCancelled, resDate, startWeek), m: countSince(notCancelled, resDate, startMonth), series: monthSeries(notCancelled, resDate) },
-    { title: "Fluxos concluídos", color: "#4ADE80", d: countSince(done, doneDate, startToday), w: countSince(done, doneDate, startWeek), m: countSince(done, doneDate, startMonth), series: monthSeries(done, doneDate) },
-    { title: "Faturamento", color: "var(--royal-400)", money: true, d: sumSince(notCancelled, resDate, startToday, price), w: sumSince(notCancelled, resDate, startWeek, price), m: sumSince(notCancelled, resDate, startMonth, price), series: monthSeries(notCancelled, resDate, price) },
+    {
+      title: "Reservas", color: "var(--orange-500)",
+      d: countSince(notCancelled, resDate, startToday),
+      w: countSince(notCancelled, resDate, startWeek),
+      m: countSince(notCancelled, resDate, startMonth),
+      mPrev: countBetween(notCancelled, resDate, prevMonthStart, prevSamePeriodEnd),
+      series: monthSeries(notCancelled, resDate),
+    },
+    {
+      title: "Fluxos concluídos", color: "#4ADE80",
+      d: countSince(done, doneDate, startToday),
+      w: countSince(done, doneDate, startWeek),
+      m: countSince(done, doneDate, startMonth),
+      mPrev: countBetween(done, doneDate, prevMonthStart, prevSamePeriodEnd),
+      series: monthSeries(done, doneDate),
+    },
+    {
+      title: "Faturamento", color: "var(--royal-400)", money: true,
+      d: sumSince(notCancelled, resDate, startToday, price),
+      w: sumSince(notCancelled, resDate, startWeek, price),
+      m: sumSince(notCancelled, resDate, startMonth, price),
+      mPrev: sumBetween(notCancelled, resDate, prevMonthStart, prevSamePeriodEnd, price),
+      series: monthSeries(notCancelled, resDate, price),
+    },
   ];
   const fmt = (v, money) => (money ? `R$ ${Number(v).toLocaleString("pt-BR")}` : v);
   return (
     <div className="adm-metrics">
-      {blocks.map((b) => (
-        <section className="adm-msec" key={b.title}>
-          <h3 className="adm-msec-h">{b.title}</h3>
-          <div className="adm-mcards">
-            <MCard n={fmt(b.d, b.money)} l="hoje" />
-            <MCard n={fmt(b.w, b.money)} l="esta semana" />
-            <MCard n={fmt(b.m, b.money)} l="este mês" accent />
-          </div>
-          <div className="adm-chart-cap">Por dia · {monthLbl}</div>
-          <BarChart data={b.series} color={b.color} money={b.money} />
-        </section>
-      ))}
+      {blocks.map((b) => {
+        const chg = pctChange(b.m, b.mPrev);
+        return (
+          <section className="adm-msec" key={b.title}>
+            <h3 className="adm-msec-h">{b.title}</h3>
+            <div className="adm-mcards">
+              <MCard n={fmt(b.d, b.money)} l="hoje" />
+              <MCard n={fmt(b.w, b.money)} l="esta semana" />
+              <MCard n={fmt(b.m, b.money)} l="este mês" accent
+                badge={chg !== null ? (
+                  <span className={`adm-chg-badge ${chg >= 0 ? "up" : "down"}`}>
+                    {chg >= 0 ? "▲" : "▼"} {Math.abs(chg)}%
+                  </span>
+                ) : null}
+              />
+            </div>
+            <div className="adm-chart-cap">Por dia · {monthLbl}</div>
+            <BarChart data={b.series} color={b.color} money={b.money} />
+          </section>
+        );
+      })}
       <p className="adm-metrics-note">Reservas e faturamento contam pela data da compra (inclui as do site, vinculadas a esta unidade); cancelados são excluídos. Concluídos contam pela data de liberação.</p>
     </div>
   );
 }
-function MCard({ n, l, accent }) {
-  return <div className={`adm-mcard${accent ? " accent" : ""}`}><div className="adm-mcard-n tabular">{n}</div><div className="adm-mcard-l">{l}</div></div>;
+
+function MCard({ n, l, accent, badge }) {
+  return (
+    <div className={`adm-mcard${accent ? " accent" : ""}`}>
+      <div className="adm-mcard-n tabular">{n}{badge && <>{" "}{badge}</>}</div>
+      <div className="adm-mcard-l">{l}</div>
+    </div>
+  );
 }
+
 function BarChart({ data, color = "var(--orange-500)", money }) {
   const max = Math.max(1, ...data.map((d) => d.v));
   const today = new Date().getDate();
+  const maxLabel = money ? `R$ ${Number(max).toLocaleString("pt-BR")}` : String(max);
   return (
-    <div className="adm-chart">
-      {data.map((d) => (
-        <div className="adm-bar-col" key={d.k} title={`Dia ${d.k}: ${money ? "R$ " + Number(d.v).toLocaleString("pt-BR") : d.v}`}>
-          <div className="adm-bar" style={{ height: `${(d.v / max) * 100}%`, background: color, opacity: d.k === today ? 1 : 0.78 }} />
-          {(d.k === 1 || d.k % 5 === 0) && <span className="adm-bar-lbl">{d.k}</span>}
-        </div>
-      ))}
+    <div className="adm-chart-wrap" style={{ position: "relative" }}>
+      <span className="adm-chart-max-lbl">{maxLabel}</span>
+      <div className="adm-chart">
+        {data.map((d) => (
+          <div className="adm-bar-col" key={d.k} title={`Dia ${d.k}: ${money ? "R$ " + Number(d.v).toLocaleString("pt-BR") : d.v}`}>
+            <div className="adm-bar" style={{ height: `${(d.v / max) * 100}%`, background: color, opacity: d.k === today ? 1 : 0.78 }} />
+            {(d.k === 1 || d.k % 5 === 0) && <span className="adm-bar-lbl">{d.k}</span>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -350,6 +685,18 @@ const PAYMENT_META = {
   refunded: { label: "Estornado", cls: "pay-refunded" },
 };
 const money = (v) => `R$ ${Number(v || 0).toLocaleString("pt-BR")}`;
+
+const FINANCE_COLS = [
+  { key: "id", label: "ID" },
+  { key: "_date", label: "Data" },
+  { key: "_state", label: "Estado" },
+  { key: "_unit", label: "Unidade" },
+  { key: "customer_name", label: "Cliente" },
+  { key: "price_total", label: "Valor" },
+  { key: "pay_method", label: "Método" },
+  { key: "payment_status", label: "Pagamento" },
+  { key: "locker_code", label: "Código" },
+];
 
 function FinanceView({ reservations, units, onSetPaid }) {
   const unitByCode = useMemo(() => Object.fromEntries(units.map((u) => [u.code, u])), [units]);
@@ -380,6 +727,9 @@ function FinanceView({ reservations, units, onSetPaid }) {
     if (q) { const s = q.toLowerCase(); if (!((r.customer_name || "").toLowerCase().includes(s) || (r.locker_code || "").toLowerCase().includes(s))) return false; }
     return true;
   }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [reservations, estado, unitId, method, pstatus, period, q]);
+
+  const { page, total: totalPages, setPage, slice: pageRows, count } = usePagination(filtered, 25);
+
   const sum = (list) => list.reduce((a, r) => a + amount(r), 0);
   const total = sum(filtered);
   const received = sum(filtered.filter((r) => r.payment_status === "paid"));
@@ -394,6 +744,20 @@ function FinanceView({ reservations, units, onSetPaid }) {
   const unitMax = Math.max(1, ...unitBars.map((b) => b.v));
   const pix = sum(filtered.filter((r) => r.pay_method === "pix"));
   const card = sum(filtered.filter((r) => r.pay_method === "card"));
+
+  const handleExport = () => {
+    const rows = filtered.map((r) => {
+      const u = unitOf(r);
+      return {
+        ...r,
+        _date: fmtDateTime(r.created_at),
+        _state: u ? u.state : (r.unit_code || "—"),
+        _unit: u ? u.code : (r.unit_code || "—"),
+      };
+    });
+    exportCSV(rows, FINANCE_COLS, `financeiro-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div>
       <div className="adm-unit-head">
@@ -401,6 +765,9 @@ function FinanceView({ reservations, units, onSetPaid }) {
           <span className="t-overline" style={{ color: "var(--orange-400)" }}>Visão nacional</span>
           <h2 className="t-h2" style={{ color: "var(--cream-500)", margin: "4px 0 0" }}>Gestão financeira</h2>
         </div>
+        <button className="adm-export-btn" onClick={handleExport} title="Exportar CSV">
+          <Icon name="download" size={15} /> Exportar CSV
+        </button>
       </div>
       <div className="adm-kpis">
         <Kpi n={money(total)} l="Faturamento" accent />
@@ -456,32 +823,35 @@ function FinanceView({ reservations, units, onSetPaid }) {
       {filtered.length === 0 ? (
         <div className="adm-empty sm"><p className="t-body" style={{ color: "var(--navy-200)" }}>Nenhum pagamento com esses filtros.</p></div>
       ) : (
-        <div className="adm-table-wrap">
-          <table className="adm-table">
-            <thead><tr><th>Data</th><th>Estado</th><th>Unidade</th><th>Cliente</th><th>Valor</th><th>Método</th><th>Pagamento</th><th>Código</th><th></th></tr></thead>
-            <tbody>
-              {filtered.map((r) => {
-                const u = unitOf(r);
-                const ps = r.payment_status || "pending";
-                const pm = PAYMENT_META[ps] || { label: ps, cls: "" };
-                const paid = ps === "paid";
-                return (
-                  <tr key={r.id}>
-                    <td>{fmtDateTime(r.created_at)}</td>
-                    <td>{u ? u.state : "—"}</td>
-                    <td className="adm-td-strong">{u ? u.code : (r.unit_code || "—")}</td>
-                    <td>{r.customer_name || "—"}</td>
-                    <td className="tabular">{money(amount(r))}</td>
-                    <td>{r.pay_method === "card" ? "Cartão" : r.pay_method === "pix" ? "Pix" : "—"}</td>
-                    <td><span className={`adm-pay ${pm.cls}`}>{pm.label}</span></td>
-                    <td className="adm-td-mono">{r.locker_code || "—"}</td>
-                    <td><button className="adm-mini ghost" onClick={() => onSetPaid(r.id, paid ? "pending" : "paid")}>{paid ? "Marcar pendente" : "Marcar pago"}</button></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="adm-table-wrap">
+            <table className="adm-table">
+              <thead><tr><th>Data</th><th>Estado</th><th>Unidade</th><th>Cliente</th><th>Valor</th><th>Método</th><th>Pagamento</th><th>Código</th><th></th></tr></thead>
+              <tbody>
+                {pageRows.map((r) => {
+                  const u = unitOf(r);
+                  const ps = r.payment_status || "pending";
+                  const pm = PAYMENT_META[ps] || { label: ps, cls: "" };
+                  const paid = ps === "paid";
+                  return (
+                    <tr key={r.id}>
+                      <td>{fmtDateTime(r.created_at)}</td>
+                      <td>{u ? u.state : "—"}</td>
+                      <td className="adm-td-strong">{u ? u.code : (r.unit_code || "—")}</td>
+                      <td>{r.customer_name || "—"}</td>
+                      <td className="tabular">{money(amount(r))}</td>
+                      <td>{r.pay_method === "card" ? "Cartão" : r.pay_method === "pix" ? "Pix" : "—"}</td>
+                      <td><span className={`adm-pay ${pm.cls}`}>{pm.label}</span></td>
+                      <td className="adm-td-mono">{r.locker_code || "—"}</td>
+                      <td><button className="adm-mini ghost" onClick={() => onSetPaid(r.id, paid ? "pending" : "paid")}>{paid ? "Marcar pendente" : "Marcar pago"}</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Paginator page={page} total={totalPages} setPage={setPage} count={count} perPage={25} />
+        </>
       )}
       <p className="adm-metrics-note" style={{ marginTop: 16 }}>Pronto pro gateway: hoje o status de pagamento é manual (Pix recebido na chave). Ao conectar um PSP, o webhook preenche payment_status/paid_at automaticamente.</p>
     </div>
@@ -491,13 +861,27 @@ function Kpi({ n, l, tone, accent }) {
   return <div className={`adm-kpi${accent ? " accent" : ""} adm-kpi-${tone || "base"}`}><div className="adm-kpi-n tabular">{n}</div><div className="adm-kpi-l">{l}</div></div>;
 }
 
-/* ---------- visão geral em tabela ---------- */
+/* ============================ TABLE VIEW ============================ */
 const STATUS_META = {
   reserved:  { label: "Agendado",  cls: "st-reserved" },
   active:    { label: "Ocupado",   cls: "st-active" },
   done:      { label: "Concluído", cls: "st-done" },
   cancelled: { label: "Cancelado", cls: "st-cancelled" },
 };
+
+const TABLE_COLS = [
+  { key: "_status", label: "Status" },
+  { key: "customer_name", label: "Cliente" },
+  { key: "customer_phone", label: "Contato" },
+  { key: "size", label: "Tam." },
+  { key: "_locker_label", label: "Locker" },
+  { key: "check_in", label: "Entrada" },
+  { key: "check_out", label: "Retirada" },
+  { key: "price_total", label: "Total" },
+  { key: "source", label: "Origem" },
+  { key: "locker_code", label: "Código" },
+];
+
 function TableView({ reservations, lockers }) {
   const [f, setF] = useState("all");
   const lockerById = useMemo(() => Object.fromEntries(lockers.map((l) => [l.id, l])), [lockers]);
@@ -505,66 +889,238 @@ function TableView({ reservations, lockers }) {
     const list = f === "all" ? reservations : reservations.filter((r) => r.status === f);
     return [...list].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [reservations, f]);
-  const count = (st) => reservations.filter((r) => r.status === st).length;
+  const { page, total: totalPages, setPage, slice: pageRows, count } = usePagination(rows, 25);
+  const count2 = (st) => reservations.filter((r) => r.status === st).length;
   const filters = [
     ["all", `Todos · ${reservations.length}`],
-    ["reserved", `Agendados · ${count("reserved")}`],
-    ["active", `Ocupados · ${count("active")}`],
-    ["done", `Concluídos · ${count("done")}`],
-    ["cancelled", `Cancelados · ${count("cancelled")}`],
+    ["reserved", `Agendados · ${count2("reserved")}`],
+    ["active", `Ocupados · ${count2("active")}`],
+    ["done", `Concluídos · ${count2("done")}`],
+    ["cancelled", `Cancelados · ${count2("cancelled")}`],
   ];
+
+  const handleExport = () => {
+    const exportRows = rows.map((r) => {
+      const lk = r.locker_id && lockerById[r.locker_id];
+      return {
+        ...r,
+        _status: STATUS_META[r.status]?.label || r.status,
+        _locker_label: lk ? lk.label : "—",
+      };
+    });
+    exportCSV(exportRows, TABLE_COLS, `reservas-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div>
-      <div className="adm-filters">
-        {filters.map(([k, lbl]) => <button key={k} className={`adm-chip${f === k ? " on" : ""}`} onClick={() => setF(k)}>{lbl}</button>)}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div className="adm-filters">
+          {filters.map(([k, lbl]) => <button key={k} className={`adm-chip${f === k ? " on" : ""}`} onClick={() => setF(k)}>{lbl}</button>)}
+        </div>
+        <button className="adm-export-btn" onClick={handleExport} title="Exportar CSV">
+          <Icon name="download" size={15} /> Exportar CSV
+        </button>
       </div>
       {rows.length === 0 ? (
         <div className="adm-empty sm"><p className="t-body" style={{ color: "var(--navy-200)" }}>Nada por aqui ainda.</p></div>
       ) : (
-        <div className="adm-table-wrap">
-          <table className="adm-table">
-            <thead><tr><th>Status</th><th>Cliente</th><th>Contato</th><th>Tam.</th><th>Locker</th><th>Entrada</th><th>Retirada</th><th>Total</th><th>Origem</th><th>Código</th></tr></thead>
-            <tbody>
-              {rows.map((r) => {
-                const m = STATUS_META[r.status] || { label: r.status, cls: "" };
-                const lk = r.locker_id && lockerById[r.locker_id];
-                return (
-                  <tr key={r.id}>
-                    <td><span className={`adm-st ${m.cls}`}>{m.label}</span></td>
-                    <td className="adm-td-strong">{r.customer_name || "—"}</td>
-                    <td>{r.customer_phone || "—"}</td>
-                    <td>{r.size || "—"}</td>
-                    <td>{lk ? lk.label : "—"}</td>
-                    <td>{fmtDateTime(r.check_in)}</td>
-                    <td>{fmtDateTime(r.check_out)}</td>
-                    <td className="tabular">{r.price_total != null ? `R$ ${r.price_total}` : "—"}</td>
-                    <td>{r.source === "admin" ? "Manual" : "Site"}</td>
-                    <td className="adm-td-mono">{r.locker_code || "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="adm-table-wrap">
+            <table className="adm-table">
+              <thead><tr><th>Status</th><th>Cliente</th><th>Contato</th><th>Tam.</th><th>Locker</th><th>Entrada</th><th>Retirada</th><th>Total</th><th>Origem</th><th>Código</th></tr></thead>
+              <tbody>
+                {pageRows.map((r) => {
+                  const m = STATUS_META[r.status] || { label: r.status, cls: "" };
+                  const lk = r.locker_id && lockerById[r.locker_id];
+                  return (
+                    <tr key={r.id}>
+                      <td><span className={`adm-st ${m.cls}`}>{m.label}</span></td>
+                      <td className="adm-td-strong">{r.customer_name || "—"}</td>
+                      <td>{r.customer_phone || "—"}</td>
+                      <td>{r.size || "—"}</td>
+                      <td>{lk ? lk.label : "—"}</td>
+                      <td>{fmtDateTime(r.check_in)}</td>
+                      <td>{fmtDateTime(r.check_out)}</td>
+                      <td className="tabular">{r.price_total != null ? `R$ ${r.price_total}` : "—"}</td>
+                      <td>{r.source === "admin" ? "Manual" : "Site"}</td>
+                      <td className="adm-td-mono">{r.locker_code || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Paginator page={page} total={totalPages} setPage={setPage} count={count} perPage={25} />
+        </>
       )}
     </div>
   );
 }
 
+/* ============================ MARKETING VIEW ============================ */
+function MarketingView({ reservations, units }) {
+  const [period, setPeriod] = useState("month");
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start7 = new Date(startToday); start7.setDate(start7.getDate() - 6);
+  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const periodStart = period === "today" ? startToday : period === "7d" ? start7 : period === "month" ? startMonth : null;
+
+  const filtered = useMemo(() => {
+    if (!periodStart) return reservations;
+    return reservations.filter((r) => new Date(r.created_at) >= periodStart);
+  }, [reservations, period]);
+
+  const fromSite = filtered.filter((r) => r.source !== "admin").length;
+  const fromAdmin = filtered.filter((r) => r.source === "admin").length;
+  const total = filtered.length;
+
+  const agendadas = filtered.filter((r) => r.status === "reserved").length;
+  const ativas = filtered.filter((r) => r.status === "active").length;
+  const concluidas = filtered.filter((r) => r.status === "done").length;
+  const canceladas = filtered.filter((r) => r.status === "cancelled").length;
+  const pct = (n) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+  // Top 5 units by completed reservations
+  const byUnit = {};
+  for (const r of filtered.filter((rv) => rv.status === "done")) {
+    const key = r.unit_code || r.unit_ref || "—";
+    byUnit[key] = (byUnit[key] || 0) + 1;
+  }
+  const topUnits = Object.entries(byUnit).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v).slice(0, 5);
+  const topMax = Math.max(1, ...topUnits.map((b) => b.v));
+
+  return (
+    <div>
+      <div className="adm-unit-head">
+        <div>
+          <span className="t-overline" style={{ color: "var(--orange-400)" }}>Visão nacional</span>
+          <h2 className="t-h2" style={{ color: "var(--cream-500)", margin: "4px 0 0" }}>Marketing</h2>
+        </div>
+        <select className="field" style={{ width: "auto" }} value={period} onChange={(e) => setPeriod(e.target.value)}>
+          <option value="today">Hoje</option><option value="7d">7 dias</option><option value="month">Este mês</option><option value="all">Tudo</option>
+        </select>
+      </div>
+
+      <div className="adm-kpis" style={{ marginBottom: 24 }}>
+        <Kpi n={fromSite} l="Do site" accent />
+        <Kpi n={fromAdmin} l="Manual (admin)" />
+        <Kpi n={total} l="Total" />
+      </div>
+
+      <div className="adm-fin-grid">
+        <div className="adm-msec">
+          <h3 className="adm-msec-h">Funil de conversão</h3>
+          <div className="adm-funnel">
+            {[
+              { label: "Agendadas", n: agendadas, cls: "st-reserved" },
+              { label: "Ativas", n: ativas, cls: "st-active" },
+              { label: "Concluídas", n: concluidas, cls: "st-done" },
+              { label: "Canceladas", n: canceladas, cls: "st-cancelled" },
+            ].map((step) => (
+              <div className="adm-funnel-step" key={step.label}>
+                <span className={`adm-st ${step.cls}`}>{step.label}</span>
+                <span className="adm-funnel-n tabular">{step.n}</span>
+                <span className="adm-funnel-pct">{pct(step.n)}%</span>
+                <div className="adm-funnel-bar">
+                  <div className="adm-funnel-fill" style={{ width: `${pct(step.n)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="adm-msec">
+          <h3 className="adm-msec-h">Top 5 unidades (concluídas)</h3>
+          {topUnits.length === 0 ? (
+            <div className="adm-muted">Sem dados.</div>
+          ) : (
+            <div className="adm-hbars">
+              {topUnits.map((b) => (
+                <div className="adm-hbar" key={b.k}>
+                  <span className="adm-hbar-lbl">{b.k}</span>
+                  <span className="adm-hbar-track"><span className="adm-hbar-fill" style={{ width: `${(b.v / topMax) * 100}%` }} /></span>
+                  <span className="adm-hbar-val tabular">{b.v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================ AUDIT VIEW ============================ */
+function AuditView({ unitCode }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    listAuditLogs(unitCode, 50).then(({ data }) => {
+      setLogs(data || []);
+      setLoading(false);
+    });
+  }, [unitCode]);
+
+  if (loading) return <SkeletonList rows={6} />;
+
+  if (!logs.length) return (
+    <div className="adm-empty sm"><p className="t-body" style={{ color: "var(--navy-200)" }}>Nenhum evento registrado para esta unidade.</p></div>
+  );
+
+  const ACTION_LABEL = {
+    occupy: "Ocupou locker",
+    free: "Liberou locker",
+    checkin: "Check-in",
+    cancel: "Cancelou reserva",
+    status_maintenance: "Colocou em manutenção",
+    status_free: "Reativou locker",
+  };
+
+  return (
+    <div className="adm-table-wrap" style={{ marginTop: 12 }}>
+      <table className="adm-table">
+        <thead>
+          <tr><th>Data/hora</th><th>Ação</th><th>Entidade</th><th>Usuário</th><th>Detalhes</th></tr>
+        </thead>
+        <tbody>
+          {logs.map((log) => (
+            <tr key={log.id}>
+              <td className="adm-td-mono">{fmtDateTime(log.created_at)}</td>
+              <td>{ACTION_LABEL[log.action] || log.action}</td>
+              <td>{log.entity}{log.entity_id ? ` · ${String(log.entity_id).slice(0, 8)}…` : ""}</td>
+              <td>{log.user_email || "—"}</td>
+              <td>{log.details ? JSON.stringify(log.details) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ============================ STAT ============================ */
 function Stat({ n, l, tone }) {
   return <div className={`adm-stat adm-stat-${tone || "base"}`}><div className="adm-stat-n tabular">{n}</div><div className="adm-stat-l">{l}</div></div>;
 }
 
+/* ============================ LOCKER CARD ============================ */
 function LockerCard({ lk, res, onOccupy, onFree, onMaint, onDel }) {
   const occupied = lk.status === "occupied";
   const maint = lk.status === "maintenance";
+  const overstay = isOverstay(lk, res);
   return (
-    <div className={`adm-locker ${lk.status}`}>
+    <div className={`adm-locker ${lk.status}${overstay ? " overstay" : ""}`}>
       <div className="adm-locker-top">
         <span className="adm-locker-label">{lk.label}</span>
         <button className="adm-locker-del" title="Excluir locker" onClick={onDel}><Icon name="close" size={13} /></button>
       </div>
       <div className="adm-locker-status">{occupied ? "Ocupado" : maint ? "Manutenção" : "Livre"}</div>
+      {overstay && (
+        <div className="adm-overstay-label">Retirada atrasada!</div>
+      )}
       {occupied && res && (
         <div className="adm-locker-cust">
           <div className="adm-locker-name">{res.customer_name}</div>
@@ -744,7 +1300,7 @@ function PickupModal({ unit, lockers, resById, onClose, onDone }) {
   const lk = occupied.find((l) => l.id === lockerId);
   const res = lk ? resById[lk.current_reservation_id] : null;
   const [busy, setBusy] = useState(false);
-  const save = async () => { if (!lk) return; setBusy(true); await freeLocker(lk); setBusy(false); onDone(); };
+  const save = async () => { if (!lk) return; setBusy(true); await freeLocker(lk, unit.code); setBusy(false); onDone(); };
   return (
     <ModalShell title="Retirar bagagem" onClose={onClose}>
       <div className="adm-form">
@@ -818,38 +1374,11 @@ function UnitMenu({ onAddLockers, onDelUnit }) {
       {open && (
         <div className="adm-menu-pop">
           <button onClick={() => { setOpen(false); onAddLockers(); }}><Icon name="plus" size={15} /> Adicionar lockers</button>
-          <button className="danger" onClick={() => { setOpen(false); onDelUnit(); }}><Icon name="close" size={15} /> Excluir unidade</button>
+          {onDelUnit && (
+            <button className="danger" onClick={() => { setOpen(false); onDelUnit(); }}><Icon name="close" size={15} /> Excluir unidade</button>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ---------- helpers ---------- */
-function fmtDateTime(v) {
-  if (!v) return "—";
-  const str = String(v);
-  const hasTime = str.includes("T") || str.includes(":");
-  const d = new Date(hasTime ? str : str + "T12:00");
-  if (isNaN(d)) return str;
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  if (!hasTime) return `${dd}/${mm}`;
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm} ${hh}:${mi}`;
-}
-function Fld({ label, children }) {
-  return <label className="wf-field"><span className="wf-field-lbl">{label}</span>{children}</label>;
-}
-function Splash({ children }) {
-  return <div className="adm-splash on-navy"><MalexLogo height={26} /><span>{children}</span></div>;
-}
-function ConfigMissing() {
-  return (
-    <div className="adm-splash on-navy" style={{ flexDirection: "column", gap: 12, textAlign: "center", padding: 24 }}>
-      <MalexLogo height={26} />
-      <p className="t-body" style={{ color: "var(--navy-200)", maxWidth: 420 }}>Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY e crie a conta do gestor.</p>
     </div>
   );
 }

@@ -34,6 +34,12 @@ export const MALEX_ICONS = {
   "close": '<line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/><line x1="18.5" y1="5.5" x2="5.5" y2="18.5"/>',
   "plus": '<line x1="12" y1="4.5" x2="12" y2="19.5"/><line x1="4.5" y1="12" x2="19.5" y2="12"/>',
   "bell": '<path d="M6 9.5a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4s2-1.5 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  "download": '<path d="M12 3v13"/><path d="M5.5 11.5 12 16l6.5-4.5"/><line x1="3" y1="21" x2="21" y2="21"/>',
+  "warning": '<path d="M12 2.5 2 20.5h20L12 2.5Z"/><line x1="12" y1="9.5" x2="12" y2="14.5"/><line x1="12" y1="17.5" x2="12" y2="17.6"/>',
+  "refresh": '<path d="M3.5 12A8.5 8.5 0 1 0 5 7L3 5"/><polyline points="1 3 3 5 5 3"/>',
+  "chart": '<line x1="4" y1="20" x2="4" y2="4"/><rect x="7" y="13" width="3.5" height="7" rx="1"/><rect x="13" y="8" width="3.5" height="12" rx="1"/><rect x="19" y="4" width="3.5" height="16" rx="1"/>',
+  "key": '<circle cx="7.5" cy="15.5" r="4.5"/><line x1="10.5" y1="12.5" x2="21" y2="2"/><line x1="19" y1="4" x2="21" y2="6"/><line x1="16" y1="7" x2="18" y2="9"/>',
+  "users": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 21v-2a6 6 0 0 1 12 0v2"/><circle cx="17" cy="9" r="2.5"/><path d="M21.5 21v-1.5a4 4 0 0 0-4-4"/>',
 };
 
 // Aliases so common Lucide names resolve to the Malex set (drop-in for kits).
