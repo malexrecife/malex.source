@@ -10,6 +10,7 @@ import {
   listAuditLogs,
 } from "../lib/admin.js";
 import { supabase } from "../lib/supabase.js";
+import { BLOG_CATEGORIES, slugify, calcReadTime, adminListPosts, adminGetPost, adminSavePost, adminDeletePost, uploadCoverImage } from "../lib/blog.js";
 
 /* ============================ CONSTANTS ============================ */
 const UF = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
@@ -319,6 +320,9 @@ function Dashboard({ session }) {
           )}
           <button className={view === "marketing" ? "on" : ""} onClick={() => setView("marketing")}>Marketing</button>
           <button className={view === "table" ? "on" : ""} onClick={() => setView("table")}>Reservas</button>
+          {role !== "unit_manager" && (
+            <button className={view === "blog" ? "on" : ""} onClick={() => setView("blog")}>Blog</button>
+          )}
         </nav>
         <div className="adm-top-r">
           <span className="t-body-sm" style={{ color: "var(--navy-200)" }}>{session.user?.email}</span>
@@ -393,6 +397,12 @@ function Dashboard({ session }) {
       {view === "table" && (
         <div className="adm-finance">
           <TableView reservations={reservations} lockers={lockers} />
+        </div>
+      )}
+
+      {view === "blog" && role !== "unit_manager" && (
+        <div className="adm-finance">
+          <BlogCmsView />
         </div>
       )}
 
@@ -1377,6 +1387,325 @@ function UnitMenu({ onAddLockers, onDelUnit }) {
           {onDelUnit && (
             <button className="danger" onClick={() => { setOpen(false); onDelUnit(); }}><Icon name="close" size={15} /> Excluir unidade</button>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   BLOG CMS — list, create, edit, delete posts
+   ============================================================ */
+
+function fmtDateShort(v) {
+  if (!v) return "—";
+  const d = new Date(v);
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function linePrefix(type) {
+  if (type === "ul") return "- ";
+  if (type === "ol") return "1. ";
+  if (type === "blockquote") return "> ";
+  if (type === "h1") return "# ";
+  if (type === "h2") return "## ";
+  if (type === "h3") return "### ";
+  return "";
+}
+
+function insertMd(ta, before, after = "") {
+  if (!ta) return "";
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const val = ta.value;
+  const sel = val.slice(start, end);
+  const replacement = before + sel + after;
+  const newVal = val.slice(0, start) + replacement + val.slice(end);
+  const cursor = sel ? start + replacement.length : start + before.length;
+  return { newVal, cursor };
+}
+
+function insertLinePrefix(ta, prefix) {
+  if (!ta) return "";
+  const start = ta.selectionStart;
+  const val = ta.value;
+  const lineStart = val.lastIndexOf("\n", start - 1) + 1;
+  const lineEnd = val.indexOf("\n", start);
+  const line = val.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+  const newLine = prefix + line.replace(/^(#{1,6}\s|[-*]\s|>\s|\d+\.\s)/, "");
+  const newVal = val.slice(0, lineStart) + newLine + (lineEnd === -1 ? "" : val.slice(lineEnd));
+  return { newVal, cursor: lineStart + prefix.length + (start - lineStart) };
+}
+
+function MdToolbar({ onAction }) {
+  const btn = (label, action) => (
+    <button key={label} type="button" className="blog-md-toolbar-btn" onMouseDown={(e) => { e.preventDefault(); onAction(action); }}>{label}</button>
+  );
+  const sep = (k) => <div key={k} className="blog-md-toolbar-sep" />;
+  return (
+    <div className="blog-md-toolbar">
+      {btn("B", { type: "wrap", before: "**", after: "**" })}
+      {btn("I", { type: "wrap", before: "_", after: "_" })}
+      {btn("~~", { type: "wrap", before: "~~", after: "~~" })}
+      {sep("s1")}
+      {btn("H1", { type: "line", prefix: "# " })}
+      {btn("H2", { type: "line", prefix: "## " })}
+      {btn("H3", { type: "line", prefix: "### " })}
+      {sep("s2")}
+      {btn("— lista", { type: "line", prefix: "- " })}
+      {btn("1. lista", { type: "line", prefix: "1. " })}
+      {btn('" cit.', { type: "line", prefix: "> " })}
+      {sep("s3")}
+      {btn("[ link ]", { type: "wrap", before: "[", after: "](url)" })}
+      {btn("[ img ]", { type: "insert", text: "![alt](url)" })}
+      {btn("<código>", { type: "wrap", before: "`", after: "`" })}
+      {btn("```bloco```", { type: "wrap", before: "```\n", after: "\n```" })}
+      {sep("s4")}
+      {btn("---", { type: "insert", text: "\n---\n" })}
+    </div>
+  );
+}
+
+const BLANK_POST = {
+  title: "", slug: "", seo_title: "", summary: "", body: "",
+  meta_description: "", category: BLOG_CATEGORIES[0], tags: "",
+  main_keyword: "", secondary_keywords: "", schema_type: "Article",
+  cover_image_url: "", cover_image_alt: "", status: "draft",
+};
+
+function PostEditor({ postId, onBack, onSaved }) {
+  const [form, setForm] = useState(BLANK_POST);
+  const [loading, setLoading] = useState(!!postId);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const taRef = useRef(null);
+
+  useEffect(() => {
+    if (!postId) return;
+    adminGetPost(postId).then(({ data }) => {
+      if (data) setForm({
+        ...BLANK_POST, ...data,
+        tags: (data.tags || []).join(", "),
+        secondary_keywords: (data.secondary_keywords || []).join(", "),
+      });
+      setLoading(false);
+    });
+  }, [postId]);
+
+  const set = (k, v) => setForm((f) => {
+    const next = { ...f, [k]: v };
+    if (k === "title" && !postId) next.slug = slugify(v);
+    return next;
+  });
+
+  const handleMdAction = useCallback((action) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    let result;
+    if (action.type === "wrap") result = insertMd(ta, action.before, action.after);
+    else if (action.type === "line") result = insertLinePrefix(ta, action.prefix);
+    else if (action.type === "insert") result = insertMd(ta, action.text);
+    if (!result) return;
+    setForm((f) => ({ ...f, body: result.newVal }));
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(result.cursor, result.cursor);
+    });
+  }, []);
+
+  const handleCover = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setErr(null);
+    const { url, error } = await uploadCoverImage(file, form.slug || "post");
+    setUploading(false);
+    if (error) { setErr("Erro no upload: " + error.message); return; }
+    set("cover_image_url", url);
+  };
+
+  const save = async (status) => {
+    setSaving(true); setErr(null);
+    const payload = {
+      ...form,
+      id: postId,
+      status,
+      tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      secondary_keywords: form.secondary_keywords ? form.secondary_keywords.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      read_time_min: calcReadTime(form.body),
+    };
+    const { data, error } = await adminSavePost(payload);
+    setSaving(false);
+    if (error) { setErr(error.message); return; }
+    onSaved(data);
+  };
+
+  if (loading) return <div className="blog-cms-empty">Carregando…</div>;
+
+  return (
+    <div className="blog-editor-wrap">
+      <button className="blog-editor-back" onClick={onBack}><Icon name="arrow-left" size={15} /> Voltar à lista</button>
+      <div className="blog-editor-title">{postId ? "Editar artigo" : "Novo artigo"}</div>
+
+      {err && <div className="blog-editor-err">{err}</div>}
+
+      <div className="blog-editor-grid">
+        <div className="blog-editor-full">
+          <label className="wf-field"><span className="wf-field-lbl">Título *</span>
+            <input className="field" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Título do artigo" />
+          </label>
+        </div>
+        <label className="wf-field"><span className="wf-field-lbl">Slug (URL)</span>
+          <input className="field" value={form.slug} onChange={(e) => set("slug", slugify(e.target.value))} placeholder="url-do-artigo" />
+        </label>
+        <label className="wf-field"><span className="wf-field-lbl">Categoria</span>
+          <select className="field" value={form.category} onChange={(e) => set("category", e.target.value)}>
+            {BLOG_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <div className="blog-editor-full">
+          <label className="wf-field"><span className="wf-field-lbl">Resumo</span>
+            <textarea className="field" rows={2} value={form.summary} onChange={(e) => set("summary", e.target.value)} placeholder="Resumo curto exibido nos cards" />
+          </label>
+        </div>
+      </div>
+
+      <div className="blog-editor-section-label">SEO</div>
+      <div className="blog-editor-grid">
+        <div className="blog-editor-full">
+          <label className="wf-field"><span className="wf-field-lbl">Título SEO</span>
+            <input className="field" value={form.seo_title} onChange={(e) => set("seo_title", e.target.value)} placeholder="Título para Google (deixe vazio p/ usar o título acima)" />
+          </label>
+        </div>
+        <div className="blog-editor-full">
+          <label className="wf-field"><span className="wf-field-lbl">Meta description</span>
+            <input className="field" value={form.meta_description} onChange={(e) => set("meta_description", e.target.value)} placeholder="Max ~160 caracteres" />
+          </label>
+        </div>
+        <label className="wf-field"><span className="wf-field-lbl">Palavra-chave principal</span>
+          <input className="field" value={form.main_keyword} onChange={(e) => set("main_keyword", e.target.value)} placeholder="ex: guarda-volumes aeroporto" />
+        </label>
+        <label className="wf-field"><span className="wf-field-lbl">Palavras-chave secundárias (vírgula)</span>
+          <input className="field" value={form.secondary_keywords} onChange={(e) => set("secondary_keywords", e.target.value)} placeholder="ex: locker, bagagem" />
+        </label>
+        <label className="wf-field"><span className="wf-field-lbl">Schema JSON-LD</span>
+          <select className="field" value={form.schema_type} onChange={(e) => set("schema_type", e.target.value)}>
+            <option value="Article">Article</option>
+            <option value="FAQ">FAQ</option>
+            <option value="LocalBusiness">LocalBusiness</option>
+          </select>
+        </label>
+        <label className="wf-field"><span className="wf-field-lbl">Tags (vírgula)</span>
+          <input className="field" value={form.tags} onChange={(e) => set("tags", e.target.value)} placeholder="ex: aeroporto, mochila" />
+        </label>
+      </div>
+
+      <div className="blog-editor-section-label">Imagem de capa</div>
+      <div className="blog-editor-cover-row">
+        {form.cover_image_url
+          ? <img src={form.cover_image_url} alt="" className="blog-editor-cover-img" />
+          : <div className="blog-editor-cover-placeholder"><Icon name="image" size={22} color="var(--navy-500)" /></div>
+        }
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>
+            {uploading ? "Enviando…" : "Escolher imagem"}
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleCover} disabled={uploading} />
+          </label>
+          {form.cover_image_url && (
+            <label className="wf-field" style={{ margin: 0 }}><span className="wf-field-lbl">Alt text</span>
+              <input className="field" value={form.cover_image_alt} onChange={(e) => set("cover_image_alt", e.target.value)} placeholder="Descrição da imagem" />
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="blog-editor-section-label">Conteúdo (Markdown)</div>
+      <MdToolbar onAction={handleMdAction} />
+      <textarea
+        ref={taRef}
+        className="blog-md-textarea field"
+        value={form.body}
+        onChange={(e) => set("body", e.target.value)}
+        placeholder="Escreva o artigo em Markdown…"
+        spellCheck
+      />
+      <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <Btn variant="primary" cta onClick={() => save("published")} disabled={saving || !form.title}>
+          {saving ? "Salvando…" : "Publicar"}
+        </Btn>
+        <Btn variant="ghost" onClick={() => save("draft")} disabled={saving || !form.title}>
+          Salvar rascunho
+        </Btn>
+        {saving && <span className="blog-editor-saving"><Icon name="clock" size={14} color="var(--navy-400)" /> Salvando…</span>}
+      </div>
+    </div>
+  );
+}
+
+function BlogCmsView() {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const taRef = useRef(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminListPosts().then(({ data }) => { setPosts(data || []); setLoading(false); });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const del = useCallback(async (id, title) => {
+    if (!window.confirm(`Excluir "${title}"? Isso não pode ser desfeito.`)) return;
+    await adminDeletePost(id);
+    load();
+  }, [load]);
+
+  if (creating) return <PostEditor postId={null} onBack={() => { setCreating(false); load(); }} onSaved={() => { setCreating(false); load(); }} />;
+  if (editing !== null) return <PostEditor postId={editing} onBack={() => { setEditing(null); load(); }} onSaved={() => { setEditing(null); load(); }} />;
+
+  return (
+    <div className="blog-cms-wrap">
+      <div className="blog-cms-header">
+        <h2>Artigos do Blog</h2>
+        <Btn variant="primary" size="sm" onClick={() => setCreating(true)}>+ Novo artigo</Btn>
+      </div>
+      {loading ? (
+        <div className="blog-cms-empty">Carregando…</div>
+      ) : posts.length === 0 ? (
+        <div className="blog-cms-empty">Nenhum artigo ainda. Clique em "Novo artigo" para começar.</div>
+      ) : (
+        <div className="blog-cms-table-wrap">
+          <table className="blog-cms-table">
+            <thead>
+              <tr>
+                <th>Título</th>
+                <th>Categoria</th>
+                <th>Status</th>
+                <th>Publicado</th>
+                <th>Leitura</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {posts.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.title}</td>
+                  <td style={{ color: "var(--navy-300)", whiteSpace: "nowrap" }}>{p.category}</td>
+                  <td><span className={`blog-cms-status ${p.status}`}>{p.status === "published" ? "Publicado" : "Rascunho"}</span></td>
+                  <td style={{ whiteSpace: "nowrap" }}>{fmtDateShort(p.published_at)}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{p.read_time_min ?? "—"} min</td>
+                  <td>
+                    <div className="blog-cms-actions">
+                      <Btn variant="ghost" size="sm" onClick={() => setEditing(p.id)}>Editar</Btn>
+                      <Btn variant="ghost" size="sm" onClick={() => del(p.id, p.title)} style={{ color: "#f87171" }}>Excluir</Btn>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

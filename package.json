@@ -2,6 +2,6 @@
   "name": "malex-site", "private": true, "version": "1.0.0", "type": "module",
   "description": "Malex — site + reserva (Pix) + painel admin + financeiro.",
   "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
-  "dependencies": { "@supabase/supabase-js": "^2.107.0", "qrcode": "^1.5.4", "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "dependencies": { "@supabase/supabase-js": "^2.107.0", "qrcode": "^1.5.4", "react": "^18.3.1", "react-dom": "^18.3.1", "react-router-dom": "^6.28.0", "react-markdown": "^9.0.1", "remark-gfm": "^4.0.0", "react-helmet-async": "^2.0.5" },
   "devDependencies": { "@vitejs/plugin-react": "^4.3.4", "vite": "^5.4.11" }
 }

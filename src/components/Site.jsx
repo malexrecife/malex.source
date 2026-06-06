@@ -33,6 +33,7 @@ export function Nav({ onReserve }) {
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => { e.preventDefault(); scrollToId(l.id); }}>{l.label}</a>
           ))}
+          <a href="/blog">Blog</a>
         </nav>
         <div className="nav-cta">
           <Btn variant="primary" cta size="sm" onClick={() => onReserve()}>Reservar locker</Btn>
@@ -55,6 +56,7 @@ export function Nav({ onReserve }) {
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => { e.preventDefault(); setDrawer(false); setTimeout(() => scrollToId(l.id), 120); }}>{l.label}</a>
           ))}
+          <a href="/blog" onClick={() => setDrawer(false)}>Blog</a>
         </nav>
         <Btn variant="primary" cta className="btn-block" onClick={() => { setDrawer(false); onReserve(); }}>Reservar locker</Btn>
       </aside>
