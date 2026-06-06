@@ -5,6 +5,7 @@ import { MalexLogo, MalexIcon, Icon, Btn, Pill, Sticker, MALEX_CONTACT } from ".
 const NAV_LINKS = [
   { id: "como", label: "Como funciona" },
   { id: "precos", label: "Preços" },
+  { id: "unidades", label: "Unidades" },
   { id: "sobre", label: "Sobre" },
   { id: "contato", label: "Contato" },
 ];

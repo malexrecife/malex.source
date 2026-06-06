@@ -1,7 +1,33 @@
-// Malex site — Preços, Sobre, Contato, Footer.
-import React from "react";
+// Malex site — Preços, Sobre, Unidades, Contato, Footer.
+import React, { useState, useEffect, useMemo } from "react";
 import { MalexLogo, MalexIcon, Icon, Btn, Sticker, MALEX_CONTACT, MALEX_PRICING } from "./Primitives.jsx";
 import { scrollToId } from "./Site.jsx";
+import { listUnits, supabaseEnabled } from "../lib/admin.js";
+
+/* Centro geográfico aproximado de cada UF (lat, lng) */
+const UF_CENTERS = {
+  AC:[-9.02,-70.81],AL:[-9.67,-35.74],AM:[-3.13,-60.02],AP:[-0.04,-51.07],BA:[-12.97,-38.50],
+  CE:[-3.72,-38.54],DF:[-15.78,-47.93],ES:[-20.32,-40.34],GO:[-16.69,-49.25],MA:[-2.53,-44.29],
+  MG:[-19.92,-43.94],MS:[-20.44,-54.65],MT:[-12.64,-55.42],PA:[-1.46,-48.50],PB:[-7.12,-34.86],
+  PE:[-8.05,-34.87],PI:[-5.09,-42.80],PR:[-25.43,-49.27],RJ:[-22.91,-43.17],RN:[-5.79,-35.21],
+  RO:[-8.76,-63.90],RR:[2.82,-60.68],RS:[-30.03,-51.23],SC:[-27.59,-48.55],SE:[-10.91,-37.07],
+  SP:[-23.55,-46.63],TO:[-10.17,-48.33],
+};
+
+function geoDistKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const FALLBACK_UNITS = [
+  { id:"rec", code:"REC", name:"Aeroporto de Recife", city:"Recife", state:"PE", kind:"plane" },
+  { id:"gru", code:"GRU", name:"Aeroporto de Guarulhos · T2", city:"Guarulhos", state:"SP", kind:"plane" },
+  { id:"cgh", code:"CGH", name:"Aeroporto de Congonhas", city:"São Paulo", state:"SP", kind:"plane" },
+  { id:"gig", code:"GIG", name:"Aeroporto do Galeão", city:"Rio de Janeiro", state:"RJ", kind:"plane" },
+  { id:"tte", code:"TTE", name:"Rodoviária do Tietê", city:"São Paulo", state:"SP", kind:"train" },
+  { id:"luz", code:"LUZ", name:"Estação da Luz · Centro", city:"São Paulo", state:"SP", kind:"train" },
+];
 
 /* ============================ PREÇOS ============================ */
 export function Pricing({ onReserve }) {
@@ -48,6 +74,96 @@ export function Pricing({ onReserve }) {
         <p className="precos-note t-body-sm">
           Cobrança por diária cheia · o mesmo preço em todas as unidades.
         </p>
+      </div>
+    </section>
+  );
+}
+
+/* ============================ ONDE ESTAMOS ============================ */
+export function Unidades({ onReserve }) {
+  const [units, setUnits] = useState(null);
+  const [nearState, setNearState] = useState(null);
+  const [geoActive, setGeoActive] = useState(false);
+
+  useEffect(() => {
+    if (supabaseEnabled) {
+      listUnits().then(({ data }) => setUnits(data && data.length ? data : FALLBACK_UNITS)).catch(() => setUnits(FALLBACK_UNITS));
+    } else {
+      setUnits(FALLBACK_UNITS);
+    }
+  }, []);
+
+  const requestGeo = () => {
+    if (!navigator.geolocation) return;
+    setGeoActive(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: { latitude: lat, longitude: lng } }) => {
+        let best = null, bestDist = Infinity;
+        for (const [uf, [ulat, ulng]] of Object.entries(UF_CENTERS)) {
+          const d = geoDistKm(lat, lng, ulat, ulng);
+          if (d < bestDist) { bestDist = d; best = uf; }
+        }
+        setNearState(best);
+      },
+      () => setGeoActive(false),
+      { timeout: 6000 }
+    );
+  };
+
+  const grouped = useMemo(() => {
+    const list = units || FALLBACK_UNITS;
+    const g = {};
+    for (const u of list) { (g[u.state] ||= []).push(u); }
+    return g;
+  }, [units]);
+
+  const states = Object.keys(grouped).sort((a, b) => {
+    if (a === nearState) return -1;
+    if (b === nearState) return 1;
+    return a.localeCompare(b);
+  });
+
+  return (
+    <section className="sec-navy on-navy" id="unidades">
+      <div className="container">
+        <div className="unidades-head">
+          <div>
+            <span className="t-overline" style={{ color: "var(--orange-400)" }}>Presença nacional</span>
+            <h2 className="t-display" style={{ color: "var(--cream-500)", margin: "8px 0 0" }}>Onde estamos.</h2>
+          </div>
+          <button className={`unidades-geo${geoActive ? " active" : ""}`} onClick={requestGeo}>
+            <Icon name="location" size={16} color="currentColor" />
+            {nearState ? `Mais perto: ${nearState}` : "Perto de você"}
+          </button>
+        </div>
+
+        {!units ? (
+          <div style={{ color: "var(--navy-300)", fontSize: 14 }}>Carregando unidades…</div>
+        ) : (
+          states.map((st) => (
+            <div className="unidades-state" key={st}>
+              <div className="unidades-state-h">
+                <span className="unidades-state-code">{st}</span>
+                <span style={{ color: "var(--navy-400)", fontSize: 16 }}>· {grouped[st][0].city.split(",")[0].split("·")[0].trim()}</span>
+                {st === nearState && <span className="unidades-near"><Icon name="location" size={12} color="currentColor" /> Perto de você</span>}
+              </div>
+              <div className="unidades-grid">
+                {grouped[st].map((u) => (
+                  <button key={u.id || u.code} className="unidades-card" onClick={() => onReserve({ unitId: u.id })}>
+                    <span className="unidades-card-code"><Icon name={u.kind === "plane" ? "plane" : u.kind === "train" ? "train" : "location"} size={13} color="var(--orange-400)" style={{ marginRight: 6 }} />{u.code}</span>
+                    <span className="unidades-card-name">{u.name}</span>
+                    <span className="unidades-card-city">{u.city} · {u.state}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+
+        <div className="unidades-cta">
+          <p className="t-body-sm" style={{ color: "var(--navy-300)", marginBottom: 18 }}>Todas as unidades funcionam 24h. Selecione a mais próxima pra reservar.</p>
+          <Btn variant="primary" cta icon="arrow-right" onClick={() => onReserve()}>Reservar locker</Btn>
+        </div>
       </div>
     </section>
   );
@@ -140,6 +256,7 @@ export function Footer({ onReserve }) {
     Navegação: [
       { label: "Como funciona", id: "como" },
       { label: "Preços", id: "precos" },
+      { label: "Unidades", id: "unidades" },
       { label: "Sobre", id: "sobre" },
       { label: "Contato", id: "contato" },
     ],
