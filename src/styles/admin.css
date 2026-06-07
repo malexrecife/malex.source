@@ -41,7 +41,7 @@
 .adm-unit-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
 .adm-unit-actions { display: flex; align-items: center; gap: 12px; }
 
-.adm-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 140px)); gap: 12px; margin-bottom: 28px; }
+.adm-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 140px)); gap: 12px; margin-bottom: 28px; }
 .adm-stat { background: var(--navy-800); border: 1px solid var(--navy-700); border-radius: var(--radius-bolt); padding: 14px 16px; }
 .adm-stat-n { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1; }
 .adm-stat-l { font-size: 12px; color: var(--navy-300); margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
