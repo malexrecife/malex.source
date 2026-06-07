@@ -210,8 +210,13 @@
 .adm-unit-overstay { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: var(--error); color: #fff; border-radius: 50%; font-size: 9px; font-weight: 700; margin-left: 4px; }
 
 /* ===== PAGINATION ===== */
-.adm-paginator { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 4px; border-top: 1px solid var(--navy-700); margin-top: 8px; }
+.adm-paginator { display: flex; align-items: center; gap: 4px; padding: 16px 0 4px; border-top: 1px solid var(--navy-700); margin-top: 8px; flex-wrap: wrap; }
+.adm-pag-info { font-size: 13px; color: var(--navy-300); margin-right: auto; }
 .adm-paginator-info { font-size: 13px; color: var(--navy-300); }
+.adm-pag-btn { min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid var(--navy-600); background: transparent; color: var(--navy-200); border-radius: 6px; font-size: 13px; cursor: pointer; transition: background 120ms, color 120ms; }
+.adm-pag-btn:hover:not(:disabled) { background: var(--navy-700); color: var(--cream-500); }
+.adm-pag-btn.on { background: var(--orange-500); border-color: var(--orange-500); color: #fff; font-weight: 600; }
+.adm-pag-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ===== BETTER CHARTS ===== */
 .adm-chart-wrap { position: relative; }
