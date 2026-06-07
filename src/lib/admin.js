@@ -124,6 +124,13 @@ export async function setPaymentStatus(id, status) {
     .update({ payment_status: status, paid_at: status === "paid" ? new Date().toISOString() : null })
     .eq("id", id);
 }
+// Soma uma cobrança extra (ex.: diárias por excedente) ao total da reserva.
+export async function addReservationCharge(id, currentTotal, extra) {
+  const newTotal = Math.round((Number(currentTotal) || 0) + (Number(extra) || 0));
+  const result = await supabase.from("reservations").update({ price_total: newTotal }).eq("id", id);
+  if (!result.error) logAudit({ action: "extra_charge", entity: "reservation", entityId: id, details: { extra, newTotal } });
+  return result;
+}
 
 /* ---------------- RESERVAS ---------------- */
 export async function listReservations(filter = {}) {

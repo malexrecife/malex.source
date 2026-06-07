@@ -1,13 +1,13 @@
 // Malex — Painel administrativo (login único + gestão de unidades/lockers/financeiro).
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { MalexLogo, Icon, Btn } from "../components/Primitives.jsx";
+import { MalexLogo, Icon, Btn, MALEX_PRICING } from "../components/Primitives.jsx";
 import {
   supabaseEnabled, getSession, onAuth, signIn, signOut,
   listUnits, addUnit, deleteUnit,
   listLockers, addLockersBulk, addLocker, deleteLocker,
   occupyLocker, freeLocker, setLockerStatus,
   listReservations, checkInReservation, cancelReservation, setPaymentStatus,
-  listAuditLogs,
+  addReservationCharge, listAuditLogs,
 } from "../lib/admin.js";
 import { supabase } from "../lib/supabase.js";
 import { BLOG_CATEGORIES, slugify, calcReadTime, adminListPosts, adminGetPost, adminSavePost, adminDeletePost, uploadCoverImage } from "../lib/blog.js";
@@ -22,15 +22,13 @@ function isOverstay(lk, res) {
   return lk.status === "occupied" && res?.check_out && new Date(res.check_out) < new Date();
 }
 
-function exportCSV(rows, cols, filename) {
-  const header = cols.map((c) => `"${c.label}"`).join(",");
-  const body = rows.map((r) =>
-    cols.map((c) => {
-      const v = r[c.key] ?? "";
-      return `"${String(v).replace(/"/g, '""')}"`;
-    }).join(",")
-  );
-  const csv = [header, ...body].join("\n");
+// Exporta CSV com separador ";" (padrão Excel pt-BR), aspas escapadas.
+function downloadCSV(rows, columns, filename) {
+  const SEP = ";";
+  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const header = columns.map((c) => cell(c.label)).join(SEP);
+  const body = rows.map((r) => columns.map((c) => cell(r[c.key])).join(SEP));
+  const csv = [header, ...body].join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -367,6 +365,11 @@ function Dashboard({ session }) {
                   const ok = await confirm(`Cancelar o agendamento de ${b.customer_name}?`, "Cancelar agendamento");
                   if (ok) { await cancelReservation(b.id, selUnit.code); showToast("Agendamento cancelado.", "info"); await reload(); }
                 }}
+                onMarkPaid={async (b) => {
+                  await setPaymentStatus(b.id, "paid");
+                  showToast(`Pagamento de ${b.customer_name} confirmado.`, "success");
+                  await reload();
+                }}
                 onDelLocker={async (lk) => {
                   const ok = await confirm(`Excluir locker ${lk.label}?`, "Excluir locker");
                   if (ok) { await deleteLocker(lk.id); showToast(`Locker ${lk.label} excluído.`, "info"); await reload(); }
@@ -450,7 +453,7 @@ function StateGroup({ state, cities, lockers, resById, selUnit, onSelect }) {
 }
 
 /* ============================ UNIT VIEW ============================ */
-function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy, onFree, onMaint, onDelLocker, onDelUnit, onCheckIn, onCancelBooking, onOccupyTop, onPickupTop, role }) {
+function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy, onFree, onMaint, onDelLocker, onDelUnit, onCheckIn, onCancelBooking, onMarkPaid, onOccupyTop, onPickupTop, role }) {
   const [tab, setTab] = useState("metrics");
   const occ = lockers.filter((l) => l.status === "occupied").length;
   const free = lockers.filter((l) => l.status === "free").length;
@@ -510,7 +513,7 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
         )
       )}
 
-      {tab === "bookings" && <BookingsList unit={unit} bookings={bookings} lockers={lockers} onCheckIn={onCheckIn} onCancel={onCancelBooking} />}
+      {tab === "bookings" && <BookingsList unit={unit} bookings={bookings} lockers={lockers} onCheckIn={onCheckIn} onCancel={onCancelBooking} onMarkPaid={onMarkPaid} />}
 
       {tab === "table" && <TableView reservations={unitRes} lockers={lockers} />}
 
@@ -520,7 +523,7 @@ function UnitView({ unit, lockers, reservations, resById, onAddLockers, onOccupy
 }
 
 /* ============================ BOOKINGS LIST ============================ */
-function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
+function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel, onMarkPaid }) {
   if (!bookings.length) return (
     <div className="adm-empty sm"><Icon name="calendar-check" size={32} color="var(--navy-400)" /><p className="t-body" style={{ color: "var(--navy-200)" }}>Nenhum agendamento pendente nesta unidade.</p></div>
   );
@@ -528,11 +531,11 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
     <div className="adm-bookings">
       {bookings.map((b) => {
         const freeForSize = lockers.filter((l) => l.status === "free" && l.size === b.size).length;
-        const pixPending = (b.payment_status === "pending" || b.payment_status == null) && b.pay_method === "pix";
-        const canCheckIn = freeForSize > 0 && !pixPending;
+        const paid = b.payment_status === "paid";
+        const canCheckIn = freeForSize > 0 && paid;
         let checkInTitle = "";
-        if (!freeForSize) checkInTitle = `Sem locker livre desse tamanho`;
-        else if (pixPending) checkInTitle = "Aguarde confirmação do Pix antes do check-in";
+        if (!paid) checkInTitle = "Confirme o pagamento antes de liberar a entrega da mala";
+        else if (!freeForSize) checkInTitle = `Sem locker livre desse tamanho`;
         return (
           <div className="adm-booking" key={b.id}>
             <div className="adm-booking-main">
@@ -543,9 +546,7 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
                 <span><Icon name="clock" size={13} color="var(--navy-300)" /> Retirada {fmtDateTime(b.check_out)}</span>
               </div>
               <div className="adm-booking-code mono">{b.locker_code}</div>
-              {pixPending && (
-                <div style={{ marginTop: 6, fontSize: 12, color: "var(--orange-400)" }}>⚠ Aguardando confirmação do Pix</div>
-              )}
+              {!paid && <span className="adm-pay-warn">⚠ Aguardando pagamento</span>}
             </div>
             <div className="adm-booking-actions">
               <button
@@ -554,8 +555,9 @@ function BookingsList({ unit, bookings, lockers, onCheckIn, onCancel }) {
                 title={checkInTitle}
                 onClick={() => onCheckIn(b)}
               >
-                {!freeForSize ? `Sem vaga ${b.size}` : pixPending ? "Aguardando Pix" : "Cliente entregou a mala"}
+                {!paid ? "Aguardando pagamento" : !freeForSize ? `Sem vaga ${b.size}` : "Cliente entregou a mala"}
               </button>
+              {!paid && <button className="adm-mini ghost" onClick={() => onMarkPaid(b)}>Marcar como pago</button>}
               <button className="adm-mini ghost" onClick={() => onCancel(b)}>Cancelar</button>
             </div>
           </div>
@@ -579,8 +581,10 @@ function MetricsView({ reservations }) {
 
   const resDate = (r) => r.created_at;
   const doneDate = (r) => r.closed_at || r.check_out || r.created_at;
+  const paidDate = (r) => r.paid_at || r.created_at;
   const notCancelled = reservations.filter((r) => r.status !== "cancelled");
   const done = reservations.filter((r) => r.status === "done");
+  const paid = reservations.filter((r) => r.payment_status === "paid");
   const countSince = (list, gd, start) => list.reduce((a, r) => (new Date(gd(r)) >= start ? a + 1 : a), 0);
   const sumSince = (list, gd, start, val) => list.reduce((a, r) => (new Date(gd(r)) >= start ? a + (val(r) || 0) : a), 0);
   const countBetween = (list, gd, start, end) => list.reduce((a, r) => { const d = new Date(gd(r)); return d >= start && d <= end ? a + 1 : a; }, 0);
@@ -629,6 +633,14 @@ function MetricsView({ reservations }) {
       mPrev: sumBetween(notCancelled, resDate, prevMonthStart, prevSamePeriodEnd, price),
       series: monthSeries(notCancelled, resDate, price),
     },
+    {
+      title: "Recebido", color: "#4ADE80", money: true,
+      d: sumSince(paid, paidDate, startToday, price),
+      w: sumSince(paid, paidDate, startWeek, price),
+      m: sumSince(paid, paidDate, startMonth, price),
+      mPrev: sumBetween(paid, paidDate, prevMonthStart, prevSamePeriodEnd, price),
+      series: monthSeries(paid, paidDate, price),
+    },
   ];
   const fmt = (v, money) => (money ? `R$ ${Number(v).toLocaleString("pt-BR")}` : v);
   return (
@@ -654,7 +666,7 @@ function MetricsView({ reservations }) {
           </section>
         );
       })}
-      <p className="adm-metrics-note">Reservas e faturamento contam pela data da compra (inclui as do site, vinculadas a esta unidade); cancelados são excluídos. Concluídos contam pela data de liberação.</p>
+      <p className="adm-metrics-note">Reservas e faturamento contam pela data da compra (inclui as do site, vinculadas a esta unidade); cancelados são excluídos. Concluídos contam pela data de liberação. Recebido conta só o que está pago, pela data de confirmação do pagamento.</p>
     </div>
   );
 }
@@ -765,7 +777,7 @@ function FinanceView({ reservations, units, onSetPaid }) {
         _unit: u ? u.code : (r.unit_code || "—"),
       };
     });
-    exportCSV(rows, FINANCE_COLS, `financeiro-${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCSV(rows, FINANCE_COLS, `financeiro-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   return (
@@ -918,7 +930,7 @@ function TableView({ reservations, lockers }) {
         _locker_label: lk ? lk.label : "—",
       };
     });
-    exportCSV(exportRows, TABLE_COLS, `reservas-${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCSV(exportRows, TABLE_COLS, `reservas-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   return (
@@ -1236,7 +1248,18 @@ function OccupyModal({ unit, locker, lockers, reservations, onClose, onDone }) {
   const effBookingId = pendings.some((p) => p.id === bookingId) ? bookingId : (pendings[0]?.id || "");
   const [f, setF] = useState({ name: "", phone: "", cpf: "", email: "", checkout: "" });
   const [err, setErr] = useState(null); const [busy, setBusy] = useState(false);
+  const [paidIds, setPaidIds] = useState(() => new Set()); const [paying, setPaying] = useState(false);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const selBooking = pendings.find((r) => r.id === effBookingId) || null;
+  const bookingPaid = !!selBooking && (selBooking.payment_status === "paid" || paidIds.has(selBooking.id));
+  const markPaid = async () => {
+    if (!selBooking) return;
+    setPaying(true);
+    const { error } = await setPaymentStatus(selBooking.id, "paid");
+    setPaying(false);
+    if (error) { setErr(error.message); return; }
+    setPaidIds((prev) => new Set(prev).add(selBooking.id));
+  };
   const save = async () => {
     if (!lk) { setErr("Selecione um locker livre."); return; }
     setBusy(true); setErr(null);
@@ -1244,6 +1267,7 @@ function OccupyModal({ unit, locker, lockers, reservations, onClose, onDone }) {
     if (m === "booking") {
       const b = pendings.find((r) => r.id === effBookingId);
       if (!b) { setBusy(false); setErr("Selecione um agendamento."); return; }
+      if (!(b.payment_status === "paid" || paidIds.has(b.id))) { setBusy(false); setErr("Confirme o pagamento antes de liberar a entrega da mala."); return; }
       ({ error } = await checkInReservation(b, lk, f.checkout || b.check_out || null));
     } else {
       if (!f.name.trim()) { setBusy(false); setErr("Informe o nome do cliente."); return; }
@@ -1277,6 +1301,12 @@ function OccupyModal({ unit, locker, lockers, reservations, onClose, onDone }) {
                     {pendings.map((b) => <option key={b.id} value={b.id}>{b.customer_name} — {b.customer_phone || "sem telefone"} · entrada {fmtDateTime(b.check_in)}</option>)}
                   </select>
                 </Fld>
+                {selBooking && !bookingPaid && (
+                  <div className="adm-pay-gate">
+                    <span className="adm-pay-warn">⚠ Aguardando pagamento</span>
+                    <button className="adm-mini ghost" onClick={markPaid} disabled={paying}>{paying ? "Confirmando…" : "Marcar como pago"}</button>
+                  </div>
+                )}
                 <Fld label="Retirar até (opcional)"><input className="field" type="date" value={f.checkout} onChange={(e) => set("checkout", e.target.value)} /></Fld>
               </>
             ) : (
@@ -1296,10 +1326,23 @@ function OccupyModal({ unit, locker, lockers, reservations, onClose, onDone }) {
           </>
         )}
         {err && <div className="adm-err">{err}</div>}
-        <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !lk}>{busy ? "Salvando…" : m === "booking" ? "Confirmar entrega da mala" : "Confirmar ocupação"}</Btn>
+        <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !lk || (m === "booking" && !bookingPaid)}>{busy ? "Salvando…" : m === "booking" ? (bookingPaid ? "Confirmar entrega da mala" : "Aguardando pagamento") : "Confirmar ocupação"}</Btn>
       </div>
     </ModalShell>
   );
+}
+
+// Calcula diárias extras quando a retirada ocorre após o check_out previsto.
+function overstayCharge(res) {
+  if (!res?.check_out) return { extraDays: 0, extra: 0 };
+  const str = String(res.check_out);
+  const co = new Date(str.length <= 10 ? str + "T12:00" : str);
+  if (isNaN(co)) return { extraDays: 0, extra: 0 };
+  const diffMs = Date.now() - co.getTime();
+  if (diffMs <= 0) return { extraDays: 0, extra: 0 };
+  const extraDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  const daily = MALEX_PRICING[res.size]?.day || 0;
+  return { extraDays, extra: extraDays * daily };
 }
 
 function PickupModal({ unit, lockers, resById, onClose, onDone }) {
@@ -1308,7 +1351,15 @@ function PickupModal({ unit, lockers, resById, onClose, onDone }) {
   const lk = occupied.find((l) => l.id === lockerId);
   const res = lk ? resById[lk.current_reservation_id] : null;
   const [busy, setBusy] = useState(false);
-  const save = async () => { if (!lk) return; setBusy(true); await freeLocker(lk, unit.code); setBusy(false); onDone(); };
+  const { extraDays, extra } = res ? overstayCharge(res) : { extraDays: 0, extra: 0 };
+  const save = async () => {
+    if (!lk) return;
+    setBusy(true);
+    if (extra > 0 && res) await addReservationCharge(res.id, res.price_total, extra);
+    await freeLocker(lk, unit.code);
+    setBusy(false);
+    onDone();
+  };
   return (
     <ModalShell title="Retirar bagagem" onClose={onClose}>
       <div className="adm-form">
@@ -1329,7 +1380,18 @@ function PickupModal({ unit, lockers, resById, onClose, onDone }) {
                 {res.check_out && <div className="t-body-sm" style={{ color: "var(--orange-300)" }}>Retirada prevista: {fmtDateTime(res.check_out)}</div>}
               </div>
             )}
-            <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !lk}>{busy ? "Concluindo…" : "Confirmar retirada e liberar"}</Btn>
+            {extra > 0 && (
+              <div className="adm-overstay-charge">
+                <span className="adm-pay-warn">⚠ Retirada atrasada</span>
+                <div className="t-body-sm" style={{ color: "var(--cream-500)", marginTop: 4 }}>
+                  {extraDays} diária(s) extra = <strong className="tabular">{money(extra)}</strong>
+                </div>
+                <div className="t-body-sm" style={{ color: "var(--navy-300)" }}>
+                  Total atualizado: {money(res.price_total)} → <strong className="tabular">{money((Number(res.price_total) || 0) + extra)}</strong>
+                </div>
+              </div>
+            )}
+            <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !lk}>{busy ? "Concluindo…" : extra > 0 ? `Cobrar extra e liberar` : "Confirmar retirada e liberar"}</Btn>
           </>
         )}
       </div>
@@ -1341,10 +1403,20 @@ function CheckInModal({ unit, reservation, lockers, onClose, onDone }) {
   const free = (lockers || []).filter((l) => l.status === "free" && l.size === reservation.size);
   const [lockerId, setLockerId] = useState(free[0]?.id || "");
   const [checkout, setCheckout] = useState(reservation.check_out ? String(reservation.check_out).slice(0, 10) : "");
-  const [err, setErr] = useState(null); const [busy, setBusy] = useState(false);
+  const [localPaid, setLocalPaid] = useState(false);
+  const [err, setErr] = useState(null); const [busy, setBusy] = useState(false); const [paying, setPaying] = useState(false);
+  const paid = reservation.payment_status === "paid" || localPaid;
+  const markPaid = async () => {
+    setPaying(true);
+    const { error } = await setPaymentStatus(reservation.id, "paid");
+    setPaying(false);
+    if (error) { setErr(error.message); return; }
+    setLocalPaid(true);
+  };
   const save = async () => {
     const lk = free.find((l) => l.id === lockerId);
     if (!lk) { setErr("Selecione um locker livre."); return; }
+    if (!paid) { setErr("Confirme o pagamento antes de registrar a entrada."); return; }
     setBusy(true); setErr(null);
     const { error } = await checkInReservation(reservation, lk, checkout || null);
     setBusy(false);
@@ -1355,6 +1427,12 @@ function CheckInModal({ unit, reservation, lockers, onClose, onDone }) {
     <ModalShell title={`Entrada de mala · ${reservation.customer_name}`} onClose={onClose}>
       <div className="adm-form">
         <p className="t-body-sm" style={{ color: "var(--navy-200)", margin: 0 }}>Cliente entregou a mala. Vincule o agendamento ({SIZE_NAME[reservation.size]}) a um locker livre.</p>
+        {!paid && (
+          <div className="adm-pay-gate">
+            <span className="adm-pay-warn">⚠ Aguardando pagamento</span>
+            <button className="adm-mini ghost" onClick={markPaid} disabled={paying}>{paying ? "Confirmando…" : "Marcar como pago"}</button>
+          </div>
+        )}
         <Fld label="Locker livre">
           <select className="field" value={lockerId} onChange={(e) => setLockerId(e.target.value)}>
             {free.length ? free.map((l) => <option key={l.id} value={l.id}>{l.label}</option>) : <option value="">Sem locker livre desse tamanho</option>}
@@ -1362,7 +1440,7 @@ function CheckInModal({ unit, reservation, lockers, onClose, onDone }) {
         </Fld>
         <Fld label="Retirar até"><input className="field" type="date" value={checkout} onChange={(e) => setCheckout(e.target.value)} /></Fld>
         {err && <div className="adm-err">{err}</div>}
-        <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !free.length}>{busy ? "Salvando…" : "Confirmar entrada"}</Btn>
+        <Btn variant="primary" cta className="btn-block" onClick={save} disabled={busy || !free.length || !paid}>{busy ? "Salvando…" : !paid ? "Aguardando pagamento" : "Confirmar entrada"}</Btn>
       </div>
     </ModalShell>
   );
