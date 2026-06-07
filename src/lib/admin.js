@@ -24,6 +24,20 @@ export async function signOut() {
   if (supabaseEnabled) await supabase.auth.signOut();
 }
 
+// Papel do usuário logado (item 2.7). Fonte única: tabela user_roles.
+// Sem Supabase (modo demo) → admin. Logado sem registro → gestor sem unidade
+// (sem acesso), espelhando o que o RLS de fato libera.
+export async function getMyRole() {
+  if (!supabaseEnabled) return { role: "admin", unitCode: null };
+  const { data: u } = await supabase.auth.getUser();
+  const uid = u?.user?.id;
+  if (!uid) return { role: "unit_manager", unitCode: null };
+  const { data, error } = await supabase
+    .from("user_roles").select("role, unit_code").eq("user_id", uid).maybeSingle();
+  if (error || !data) return { role: "unit_manager", unitCode: null };
+  return { role: data.role, unitCode: data.unit_code || null };
+}
+
 /* ---------------- UNIDADES ---------------- */
 export async function listUnits() {
   const { data, error } = await supabase.from("units").select("*").order("state").order("city").order("name");
@@ -37,7 +51,10 @@ export async function addUnit(u) {
   }).select().single();
 }
 export async function deleteUnit(id) {
-  return supabase.from("units").delete().eq("id", id);
+  const { data } = await supabase.from("units").select("code,name").eq("id", id).single();
+  const result = await supabase.from("units").delete().eq("id", id);
+  if (!result.error) logAudit({ action: "delete_unit", entity: "unit", entityId: id, details: data ? { code: data.code, name: data.name } : null });
+  return result;
 }
 
 /* ---------------- LOCKERS ---------------- */
@@ -60,7 +77,10 @@ export async function addLockersBulk(unitId, counts) {
   return supabase.from("lockers").insert(rows).select();
 }
 export async function deleteLocker(id) {
-  return supabase.from("lockers").delete().eq("id", id);
+  const { data } = await supabase.from("lockers").select("label,unit_id").eq("id", id).single();
+  const result = await supabase.from("lockers").delete().eq("id", id);
+  if (!result.error) logAudit({ action: "delete_locker", entity: "locker", entityId: id, details: data ? { label: data.label } : null });
+  return result;
 }
 
 /* ---------------- OCUPAÇÃO (locker ↔ cliente) ---------------- */
@@ -123,6 +143,13 @@ export async function setPaymentStatus(id, status) {
   return supabase.from("reservations")
     .update({ payment_status: status, paid_at: status === "paid" ? new Date().toISOString() : null })
     .eq("id", id);
+}
+// Soma uma cobrança extra (ex.: diárias por excedente) ao total da reserva.
+export async function addReservationCharge(id, currentTotal, extra) {
+  const newTotal = Math.round((Number(currentTotal) || 0) + (Number(extra) || 0));
+  const result = await supabase.from("reservations").update({ price_total: newTotal }).eq("id", id);
+  if (!result.error) logAudit({ action: "extra_charge", entity: "reservation", entityId: id, details: { extra, newTotal } });
+  return result;
 }
 
 /* ---------------- RESERVAS ---------------- */
