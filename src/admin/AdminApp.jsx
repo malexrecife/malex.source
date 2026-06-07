@@ -1128,9 +1128,7 @@ function LockerCard({ lk, res, onOccupy, onFree, onMaint, onDel }) {
         <button className="adm-locker-del" title="Excluir locker" onClick={onDel}><Icon name="close" size={13} /></button>
       </div>
       <div className="adm-locker-status">{occupied ? "Ocupado" : maint ? "Manutenção" : "Livre"}</div>
-      {overstay && (
-        <div className="adm-overstay-label">Retirada atrasada!</div>
-      )}
+      {overstay && <span className="adm-overstay-badge">Atrasado</span>}
       {occupied && res && (
         <div className="adm-locker-cust">
           <div className="adm-locker-name">{res.customer_name}</div>
