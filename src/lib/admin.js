@@ -51,7 +51,10 @@ export async function addUnit(u) {
   }).select().single();
 }
 export async function deleteUnit(id) {
-  return supabase.from("units").delete().eq("id", id);
+  const { data } = await supabase.from("units").select("code,name").eq("id", id).single();
+  const result = await supabase.from("units").delete().eq("id", id);
+  if (!result.error) logAudit({ action: "delete_unit", entity: "unit", entityId: id, details: data ? { code: data.code, name: data.name } : null });
+  return result;
 }
 
 /* ---------------- LOCKERS ---------------- */
@@ -74,7 +77,10 @@ export async function addLockersBulk(unitId, counts) {
   return supabase.from("lockers").insert(rows).select();
 }
 export async function deleteLocker(id) {
-  return supabase.from("lockers").delete().eq("id", id);
+  const { data } = await supabase.from("lockers").select("label,unit_id").eq("id", id).single();
+  const result = await supabase.from("lockers").delete().eq("id", id);
+  if (!result.error) logAudit({ action: "delete_locker", entity: "locker", entityId: id, details: data ? { label: data.label } : null });
+  return result;
 }
 
 /* ---------------- OCUPAÇÃO (locker ↔ cliente) ---------------- */

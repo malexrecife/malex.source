@@ -321,6 +321,9 @@ function Dashboard({ session }) {
         <nav className="adm-nav">
           <button className={view === "units" ? "on" : ""} onClick={() => setView("units")}>Unidades</button>
           {role !== "unit_manager" && (
+            <button className={view === "national" ? "on" : ""} onClick={() => setView("national")}>Nacional</button>
+          )}
+          {role !== "unit_manager" && (
             <button className={view === "finance" ? "on" : ""} onClick={() => setView("finance")}>Financeiro</button>
           )}
           <button className={view === "marketing" ? "on" : ""} onClick={() => setView("marketing")}>Marketing</button>
@@ -391,9 +394,15 @@ function Dashboard({ session }) {
         </div>
       )}
 
+      {view === "national" && role !== "unit_manager" && (
+        <div className="adm-finance">
+          <NationalView units={units} lockers={lockers} reservations={reservations} loading={loading} />
+        </div>
+      )}
+
       {view === "finance" && role !== "unit_manager" && (
         <div className="adm-finance">
-          <FinanceView reservations={reservations} units={units}
+          <FinanceView reservations={reservations} units={units} loading={loading}
             onSetPaid={async (id, st) => { await setPaymentStatus(id, st); showToast(st === "paid" ? "Marcado como pago." : "Marcado como pendente.", "success"); await reload(); }} />
         </div>
       )}
@@ -691,13 +700,15 @@ function BarChart({ data, color = "var(--orange-500)", money }) {
   const max = Math.max(1, ...data.map((d) => d.v));
   const today = new Date().getDate();
   const maxLabel = money ? `R$ ${Number(max).toLocaleString("pt-BR")}` : String(max);
+  const fmt = (v) => money ? `R$ ${Number(v).toLocaleString("pt-BR")}` : String(v);
   return (
     <div className="adm-chart-wrap" style={{ position: "relative" }}>
       <span className="adm-chart-max-lbl">{maxLabel}</span>
       <div className="adm-chart">
         {data.map((d) => (
-          <div className="adm-bar-col" key={d.k} title={`Dia ${d.k}: ${money ? "R$ " + Number(d.v).toLocaleString("pt-BR") : d.v}`}>
+          <div className="adm-bar-col" key={d.k}>
             <div className="adm-bar" style={{ height: `${(d.v / max) * 100}%`, background: color, opacity: d.k === today ? 1 : 0.78 }} />
+            <div className="adm-bar-tt">Dia {d.k}<br />{fmt(d.v)}</div>
             {(d.k === 1 || d.k % 5 === 0) && <span className="adm-bar-lbl">{d.k}</span>}
           </div>
         ))}
@@ -727,7 +738,8 @@ const FINANCE_COLS = [
   { key: "locker_code", label: "Código" },
 ];
 
-function FinanceView({ reservations, units, onSetPaid }) {
+function FinanceView({ reservations, units, onSetPaid, loading }) {
+  if (loading) return <div style={{ padding: 32 }}><SkeletonList rows={8} /></div>;
   const unitByCode = useMemo(() => Object.fromEntries(units.map((u) => [u.code, u])), [units]);
   const unitById = useMemo(() => Object.fromEntries(units.map((u) => [u.id, u])), [units]);
   const unitOf = (r) => unitById[r.unit_ref] || unitByCode[r.unit_code] || null;
@@ -1080,6 +1092,105 @@ function MarketingView({ reservations, units }) {
   );
 }
 
+/* ============================ NATIONAL VIEW (2.11) ============================ */
+function NationalView({ units, lockers, reservations, loading }) {
+  if (loading) return <div style={{ padding: 32 }}><SkeletonList rows={8} /></div>;
+
+  const now = new Date();
+  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // Ocupação global
+  const totalLockers = lockers.length;
+  const occupied = lockers.filter((l) => l.status === "occupied").length;
+  const free = lockers.filter((l) => l.status === "free").length;
+  const maint = lockers.filter((l) => l.status === "maintenance").length;
+  const resById = Object.fromEntries(reservations.map((r) => [r.id, r]));
+  const overstayCount = lockers.filter((l) => isOverstay(l, resById[l.current_reservation_id])).length;
+  const occPct = totalLockers ? Math.round((occupied / totalLockers) * 100) : 0;
+
+  // Reservas do mês
+  const monthRes = reservations.filter((r) => r.status !== "cancelled" && new Date(r.created_at) >= startMonth);
+  const monthRevenue = monthRes.reduce((a, r) => a + (r.price_total || 0), 0);
+  const monthReceived = reservations.filter((r) => r.payment_status === "paid" && new Date(r.created_at) >= startMonth)
+    .reduce((a, r) => a + (r.price_total || 0), 0);
+
+  // Ranking de unidades por ocupação (%)
+  const unitOccRank = units.map((u) => {
+    const ul = lockers.filter((l) => l.unit_id === u.id);
+    const occ = ul.filter((l) => l.status === "occupied").length;
+    const pct = ul.length ? Math.round((occ / ul.length) * 100) : 0;
+    return { code: u.code, name: u.name, total: ul.length, occ, pct };
+  }).filter((u) => u.total > 0).sort((a, b) => b.pct - a.pct);
+
+  // Ranking por faturamento no mês
+  const byRevenue = {};
+  for (const r of monthRes) {
+    const key = r.unit_code || "—";
+    byRevenue[key] = (byRevenue[key] || 0) + (r.price_total || 0);
+  }
+  const revenueRank = Object.entries(byRevenue).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v).slice(0, 8);
+  const revenueMax = Math.max(1, ...revenueRank.map((b) => b.v));
+
+  const occMax = Math.max(1, ...unitOccRank.map((u) => u.pct));
+  const MONTHS = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+
+  return (
+    <div>
+      <div className="adm-unit-head">
+        <div>
+          <span className="t-overline" style={{ color: "var(--orange-400)" }}>Consolidado</span>
+          <h2 className="t-h2" style={{ color: "var(--cream-500)", margin: "4px 0 0" }}>Visão nacional</h2>
+        </div>
+      </div>
+
+      <div className="adm-kpis">
+        <Kpi n={totalLockers} l="Lockers totais" />
+        <Kpi n={`${occupied} (${occPct}%)`} l="Ocupados" tone="orange" accent />
+        <Kpi n={free} l="Livres" tone="success" />
+        <Kpi n={maint} l="Manutenção" tone="base" />
+        <Kpi n={overstayCount} l="Atrasados" tone="danger" />
+      </div>
+      <div className="adm-kpis" style={{ marginTop: 12 }}>
+        <Kpi n={money(monthRevenue)} l={`Faturamento · ${MONTHS[now.getMonth()]}`} accent />
+        <Kpi n={money(monthReceived)} l="Recebido · mês" tone="success" />
+        <Kpi n={units.length} l="Unidades ativas" />
+        <Kpi n={monthRes.length} l="Reservas no mês" />
+      </div>
+
+      <div className="adm-fin-grid" style={{ marginTop: 24 }}>
+        <div className="adm-msec">
+          <h3 className="adm-msec-h">Ranking por ocupação (%)</h3>
+          {unitOccRank.length === 0 ? <div className="adm-muted">Sem dados.</div> : (
+            <div className="adm-hbars">
+              {unitOccRank.slice(0, 10).map((u) => (
+                <div className="adm-hbar" key={u.code}>
+                  <span className="adm-hbar-lbl" title={u.name}>{u.code}</span>
+                  <span className="adm-hbar-track"><span className="adm-hbar-fill" style={{ width: `${(u.pct / occMax) * 100}%` }} /></span>
+                  <span className="adm-hbar-val tabular">{u.pct}% <span style={{ color: "var(--navy-400)", fontSize: 11 }}>({u.occ}/{u.total})</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="adm-msec">
+          <h3 className="adm-msec-h">Ranking por faturamento · mês</h3>
+          {revenueRank.length === 0 ? <div className="adm-muted">Sem dados.</div> : (
+            <div className="adm-hbars">
+              {revenueRank.map((b) => (
+                <div className="adm-hbar" key={b.k}>
+                  <span className="adm-hbar-lbl">{b.k}</span>
+                  <span className="adm-hbar-track"><span className="adm-hbar-fill" style={{ width: `${(b.v / revenueMax) * 100}%` }} /></span>
+                  <span className="adm-hbar-val tabular">{money(b.v)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================ AUDIT VIEW ============================ */
 function AuditView({ unitCode }) {
   const [logs, setLogs] = useState([]);
@@ -1106,6 +1217,9 @@ function AuditView({ unitCode }) {
     cancel: "Cancelou reserva",
     status_maintenance: "Colocou em manutenção",
     status_free: "Reativou locker",
+    delete_locker: "Excluiu locker",
+    delete_unit: "Excluiu unidade",
+    extra_charge: "Cobrou diárias extras",
   };
 
   return (
@@ -1731,6 +1845,7 @@ function BlogCmsView() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const taRef = useRef(null);
+  const { confirm: confirmBlog, ConfirmUI: BlogConfirmUI } = useConfirm();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1740,10 +1855,11 @@ function BlogCmsView() {
   useEffect(() => { load(); }, [load]);
 
   const del = useCallback(async (id, title) => {
-    if (!window.confirm(`Excluir "${title}"? Isso não pode ser desfeito.`)) return;
+    const ok = await confirmBlog(`Excluir "${title}"? Isso não pode ser desfeito.`, "Excluir artigo");
+    if (!ok) return;
     await adminDeletePost(id);
     load();
-  }, [load]);
+  }, [load, confirmBlog]);
 
   if (creating) return <PostEditor postId={null} onBack={() => { setCreating(false); load(); }} onSaved={() => { setCreating(false); load(); }} />;
   if (editing !== null) return <PostEditor postId={editing} onBack={() => { setEditing(null); load(); }} onSaved={() => { setEditing(null); load(); }} />;
@@ -1791,6 +1907,7 @@ function BlogCmsView() {
           </table>
         </div>
       )}
+      {BlogConfirmUI}
     </div>
   );
 }
