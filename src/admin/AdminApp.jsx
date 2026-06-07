@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { MalexLogo, Icon, Btn, MALEX_PRICING } from "../components/Primitives.jsx";
 import {
-  supabaseEnabled, getSession, onAuth, signIn, signOut,
+  supabaseEnabled, getSession, onAuth, signIn, signOut, getMyRole,
   listUnits, addUnit, deleteUnit,
   listLockers, addLockersBulk, addLocker, deleteLocker,
   occupyLocker, freeLocker, setLockerStatus,
@@ -271,8 +271,13 @@ function Dashboard({ session }) {
   const { toasts, show: showToast, dismiss } = useToasts();
   const { confirm, ConfirmUI } = useConfirm();
 
-  const role = session.user?.user_metadata?.role || "admin";
-  const unitCodeFilter = session.user?.user_metadata?.unit_code || null;
+  const [role, setRole] = useState(null);
+  const [unitCodeFilter, setUnitCodeFilter] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getMyRole().then((r) => { if (alive) { setRole(r.role); setUnitCodeFilter(r.unitCode); } });
+    return () => { alive = false; };
+  }, [session]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -300,6 +305,8 @@ function Dashboard({ session }) {
 
   const close = () => setModal(null);
   const afterChange = async (msg) => { close(); if (msg) showToast(msg, "success"); await reload(); };
+
+  if (!role) return <Splash>Carregando painel…</Splash>;
 
   return (
     <div className="adm on-navy">

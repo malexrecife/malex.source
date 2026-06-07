@@ -35,27 +35,73 @@ alter table public.reservations add column if not exists paid_at        timestam
 alter table public.reservations add column if not exists gateway        text;
 alter table public.reservations add column if not exists gateway_txid   text;
 
+-- ============================================================
+-- PAPÉIS / PERMISSÕES (item 2.7)
+-- admin nacional (vê tudo) x gestor de unidade (só a sua unit_code).
+-- ============================================================
+create table if not exists public.user_roles (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  role       text not null default 'unit_manager' check (role in ('admin','unit_manager')),
+  unit_code  text references public.units(code),   -- null = admin nacional
+  created_at timestamptz not null default now()
+);
+
+-- Helpers SECURITY DEFINER: consultam user_roles sem cair em recursão de RLS.
+create or replace function public.is_admin() returns boolean
+  language sql security definer stable set search_path = public as $$
+  select exists (select 1 from public.user_roles where user_id = auth.uid() and role = 'admin');
+$$;
+create or replace function public.my_unit_code() returns text
+  language sql security definer stable set search_path = public as $$
+  select unit_code from public.user_roles where user_id = auth.uid();
+$$;
+
+alter table public.user_roles enable row level security;
+drop policy if exists "roles_self_read" on public.user_roles;
+create policy "roles_self_read" on public.user_roles for select to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+drop policy if exists "roles_admin_write" on public.user_roles;
+create policy "roles_admin_write" on public.user_roles for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Seed do primeiro admin pelo e-mail (idempotente). Ajuste o e-mail se mudar de dono.
+insert into public.user_roles (user_id, role, unit_code)
+select id, 'admin', null from auth.users where email = 'lhcsiqueiraa@gmail.com'
+on conflict (user_id) do update set role = 'admin', unit_code = null;
+
 alter table public.units   enable row level security;
 alter table public.lockers enable row level security;
 
+-- units: leitura pública (vitrine do site); escrita só admin.
 drop policy if exists "units_read"  on public.units;
 create policy "units_read"  on public.units for select to anon, authenticated using (true);
 drop policy if exists "units_write" on public.units;
-create policy "units_write" on public.units for all to authenticated using (true) with check (true);
+create policy "units_write" on public.units for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
 
+-- lockers: leitura pública; escrita admin OU gestor da unidade do locker.
 drop policy if exists "lockers_read"  on public.lockers;
 create policy "lockers_read"  on public.lockers for select to anon, authenticated using (true);
 drop policy if exists "lockers_write" on public.lockers;
-create policy "lockers_write" on public.lockers for all to authenticated using (true) with check (true);
+create policy "lockers_write" on public.lockers for all to authenticated
+  using (public.is_admin() or unit_id in (select id from public.units where code = public.my_unit_code()))
+  with check (public.is_admin() or unit_id in (select id from public.units where code = public.my_unit_code()));
 
+-- reservations (lado autenticado/gestor): admin tudo; gestor só a sua unidade.
+-- (As policies de anon — insert do site + leitura pública — ficam no schema.sql.)
 drop policy if exists "res_admin_select" on public.reservations;
-create policy "res_admin_select" on public.reservations for select to authenticated using (true);
+create policy "res_admin_select" on public.reservations for select to authenticated
+  using (public.is_admin() or unit_code = public.my_unit_code());
 drop policy if exists "res_admin_insert" on public.reservations;
-create policy "res_admin_insert" on public.reservations for insert to authenticated with check (true);
+create policy "res_admin_insert" on public.reservations for insert to authenticated
+  with check (public.is_admin() or unit_code = public.my_unit_code());
 drop policy if exists "res_admin_update" on public.reservations;
-create policy "res_admin_update" on public.reservations for update to authenticated using (true) with check (true);
+create policy "res_admin_update" on public.reservations for update to authenticated
+  using (public.is_admin() or unit_code = public.my_unit_code())
+  with check (public.is_admin() or unit_code = public.my_unit_code());
 drop policy if exists "res_admin_delete" on public.reservations;
-create policy "res_admin_delete" on public.reservations for delete to authenticated using (true);
+create policy "res_admin_delete" on public.reservations for delete to authenticated
+  using (public.is_admin() or unit_code = public.my_unit_code());
 
 -- ============================================================
 -- Trilha de auditoria: registra ações do gestor (ocupar, liberar,

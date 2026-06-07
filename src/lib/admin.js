@@ -24,6 +24,20 @@ export async function signOut() {
   if (supabaseEnabled) await supabase.auth.signOut();
 }
 
+// Papel do usuário logado (item 2.7). Fonte única: tabela user_roles.
+// Sem Supabase (modo demo) → admin. Logado sem registro → gestor sem unidade
+// (sem acesso), espelhando o que o RLS de fato libera.
+export async function getMyRole() {
+  if (!supabaseEnabled) return { role: "admin", unitCode: null };
+  const { data: u } = await supabase.auth.getUser();
+  const uid = u?.user?.id;
+  if (!uid) return { role: "unit_manager", unitCode: null };
+  const { data, error } = await supabase
+    .from("user_roles").select("role, unit_code").eq("user_id", uid).maybeSingle();
+  if (error || !data) return { role: "unit_manager", unitCode: null };
+  return { role: data.role, unitCode: data.unit_code || null };
+}
+
 /* ---------------- UNIDADES ---------------- */
 export async function listUnits() {
   const { data, error } = await supabase.from("units").select("*").order("state").order("city").order("name");
